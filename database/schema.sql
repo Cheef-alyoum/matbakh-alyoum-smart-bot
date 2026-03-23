@@ -58,6 +58,18 @@ create table if not exists menu_items (
   updated_at timestamptz not null default now()
 );
 
+
+create table if not exists conversation_sessions (
+  id uuid primary key default gen_random_uuid(),
+  phone text not null unique,
+  current_state text not null default 'welcome',
+  preferred_language text not null default 'ar',
+  consent_status text not null default 'pending',
+  last_menu_section text,
+  last_interaction_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   source text not null default 'website',
@@ -168,6 +180,7 @@ create index if not exists idx_menu_items_status on menu_items(status);
 create index if not exists idx_orders_phone on orders(phone);
 create index if not exists idx_orders_status on orders(status);
 create index if not exists idx_messages_phone on messages_log(phone);
+create index if not exists idx_conversation_sessions_phone on conversation_sessions(phone);
 
 -- Baseline settings from approved operating config
 insert into app_settings (key, value)

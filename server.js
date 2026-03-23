@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/leads' && method === 'POST') {
       const body = await parseBody(req);
-      const lead = createLead(rootDir, {
+      const lead = await createLead(rootDir, {
         id: randomUUID(),
         source: body.source || 'website',
         name: body.name || '',
@@ -103,7 +103,7 @@ const server = http.createServer(async (req, res) => {
       const paymentMethod = body.paymentMethod || 'cash';
       const now = new Date().toISOString();
 
-      const order = createOrder(rootDir, {
+      const order = await createOrder(rootDir, {
         id: `MY-${Date.now()}`,
         customerName: body.customerName || 'عميل مطبخ اليوم',
         phone,
@@ -146,12 +146,12 @@ const server = http.createServer(async (req, res) => {
       const phone = normalizePhone(url.searchParams.get('phone') || '');
 
       if (orderId) {
-        const order = getOrderById(rootDir, orderId);
+        const order = await getOrderById(rootDir, orderId);
         return json(res, order ? 200 : 404, order ? { ok: true, order } : { ok: false, message: 'لم يتم العثور على الطلب.' });
       }
 
       if (phone) {
-        const orders = findOrdersByPhone(rootDir, phone);
+        const orders = await findOrdersByPhone(rootDir, phone);
         return json(res, 200, { ok: true, orders });
       }
 
@@ -160,7 +160,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/orders/status' && method === 'POST') {
       const body = await parseBody(req);
-      const updated = updateOrderStatus(rootDir, body.orderId, body.status, body.statusLabelAr || body.status);
+      const updated = await updateOrderStatus(rootDir, body.orderId, body.status, body.statusLabelAr || body.status);
       if (!updated) {
         return json(res, 404, { ok: false, message: 'الطلب غير موجود.' });
       }
