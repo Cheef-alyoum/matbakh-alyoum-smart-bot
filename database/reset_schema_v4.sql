@@ -1,15 +1,39 @@
--- Matbakh Al Youm Smart Bot - Initial schema
--- Designed for Supabase / PostgreSQL
+begin;
 
 create extension if not exists pgcrypto;
 
-create table if not exists app_settings (
+drop trigger if exists trg_orders_updated_at on orders;
+drop trigger if exists trg_menu_items_updated_at on menu_items;
+drop trigger if exists trg_customers_updated_at on customers;
+
+drop function if exists set_updated_at() cascade;
+
+drop table if exists order_items cascade;
+drop table if exists orders cascade;
+drop table if exists customer_addresses cascade;
+drop table if exists customers cascade;
+drop table if exists conversation_sessions cascade;
+drop table if exists leads cascade;
+drop table if exists campaigns cascade;
+drop table if exists audit_log cascade;
+drop table if exists app_settings cascade;
+drop table if exists menu_items cascade;
+drop table if exists messages_log cascade;
+drop table if exists messages cascade;
+drop table if exists sessions cascade;
+drop table if exists menu cascade;
+drop table if exists settings cascade;
+drop table if exists app_config cascade;
+drop table if exists customers_log cascade;
+drop table if exists orders_log cascade;
+
+create table app_settings (
   key text primary key,
   value jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
-create table if not exists customers (
+create table customers (
   id uuid primary key default gen_random_uuid(),
   full_name text,
   phone text not null unique,
@@ -22,7 +46,7 @@ create table if not exists customers (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists customer_addresses (
+create table customer_addresses (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references customers(id) on delete cascade,
   address_text text not null,
@@ -34,7 +58,7 @@ create table if not exists customer_addresses (
   created_at timestamptz not null default now()
 );
 
-create table if not exists menu_items (
+create table menu_items (
   id text primary key,
   sku text not null unique,
   section_ar text not null,
@@ -58,8 +82,7 @@ create table if not exists menu_items (
   updated_at timestamptz not null default now()
 );
 
-
-create table if not exists conversation_sessions (
+create table conversation_sessions (
   id uuid primary key default gen_random_uuid(),
   phone text not null unique,
   current_state text not null default 'welcome',
@@ -72,10 +95,7 @@ create table if not exists conversation_sessions (
   created_at timestamptz not null default now()
 );
 
-alter table conversation_sessions add column if not exists session_data jsonb not null default '{}'::jsonb;
-alter table conversation_sessions add column if not exists last_order_id text;
-
-create table if not exists leads (
+create table leads (
   id uuid primary key default gen_random_uuid(),
   source text not null default 'website',
   full_name text,
@@ -85,7 +105,7 @@ create table if not exists leads (
   created_at timestamptz not null default now()
 );
 
-create table if not exists orders (
+create table orders (
   id text primary key,
   customer_id uuid references customers(id) on delete set null,
   customer_name text,
@@ -108,7 +128,7 @@ create table if not exists orders (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists order_items (
+create table order_items (
   id uuid primary key default gen_random_uuid(),
   order_id text not null references orders(id) on delete cascade,
   menu_item_id text references menu_items(id) on delete set null,
@@ -121,7 +141,7 @@ create table if not exists order_items (
   created_at timestamptz not null default now()
 );
 
-create table if not exists messages_log (
+create table messages_log (
   id uuid primary key default gen_random_uuid(),
   channel text not null default 'whatsapp',
   direction text not null default 'inbound',
@@ -133,7 +153,7 @@ create table if not exists messages_log (
   created_at timestamptz not null default now()
 );
 
-create table if not exists campaigns (
+create table campaigns (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   channel text not null default 'whatsapp',
@@ -147,7 +167,7 @@ create table if not exists campaigns (
   created_at timestamptz not null default now()
 );
 
-create table if not exists audit_log (
+create table audit_log (
   id uuid primary key default gen_random_uuid(),
   actor_phone text,
   actor_role text,
@@ -160,34 +180,34 @@ create table if not exists audit_log (
 );
 
 create or replace function set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
 $$;
 
-drop trigger if exists trg_customers_updated_at on customers;
-create trigger trg_customers_updated_at before update on customers
+create trigger trg_customers_updated_at
+before update on customers
 for each row execute function set_updated_at();
 
-drop trigger if exists trg_menu_items_updated_at on menu_items;
-create trigger trg_menu_items_updated_at before update on menu_items
+create trigger trg_menu_items_updated_at
+before update on menu_items
 for each row execute function set_updated_at();
 
-drop trigger if exists trg_orders_updated_at on orders;
-create trigger trg_orders_updated_at before update on orders
+create trigger trg_orders_updated_at
+before update on orders
 for each row execute function set_updated_at();
 
--- Useful indexes
-create index if not exists idx_menu_items_section on menu_items(section_ar);
-create index if not exists idx_menu_items_status on menu_items(status);
-create index if not exists idx_orders_phone on orders(phone);
-create index if not exists idx_orders_status on orders(status);
-create index if not exists idx_messages_phone on messages_log(phone);
-create index if not exists idx_conversation_sessions_phone on conversation_sessions(phone);
+create index idx_menu_items_section on menu_items(section_ar);
+create index idx_menu_items_status on menu_items(status);
+create index idx_orders_phone on orders(phone);
+create index idx_orders_status on orders(status);
+create index idx_messages_phone on messages_log(phone);
+create index idx_conversation_sessions_phone on conversation_sessions(phone);
 
--- Baseline settings from approved operating config
 insert into app_settings (key, value)
 values
   ('business_profile', jsonb_build_object(
@@ -211,5 +231,8 @@ values
     '14:00-15:30',
     '15:30-17:00',
     '17:00-18:30'
-  ]::text[]))
-on conflict (key) do update set value = excluded.value, updated_at = now();
+  ]::text[]));
+
+commit;
+
+NOTIFY pgrst, 'reload schema';

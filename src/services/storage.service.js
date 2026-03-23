@@ -85,6 +85,8 @@ export async function setConversationSession(rootDir, phone, payload = {}) {
     preferred_language: payload.preferred_language || payload.preferredLanguage || 'ar',
     consent_status: payload.consent_status || payload.consentStatus || 'pending',
     last_menu_section: payload.last_menu_section || payload.lastMenuSection || null,
+    session_data: payload.session_data || payload.sessionData || {},
+    last_order_id: payload.last_order_id || payload.lastOrderId || null,
     last_interaction_at: new Date().toISOString()
   };
 
@@ -124,8 +126,10 @@ export async function createOrder(rootDir, order) {
     delivery_type: order.deliveryType,
     delivery_slot: order.deliverySlot || null,
     payment_method: order.paymentMethod || 'cash',
+    payment_status: order.paymentStatus || 'pending',
     address_text: order.address || null,
     order_notes: order.notes || null,
+    admin_notes: order.adminNotes || null,
     created_at: order.createdAt,
     updated_at: order.updatedAt,
     subtotal_jod: order.subtotalJod || 0,
@@ -137,7 +141,7 @@ export async function createOrder(rootDir, order) {
     const insertedOrder = await insertRows('orders', orderRow);
     const orderItems = (order.items || []).map(item => ({
       order_id: order.id,
-      menu_item_id: item.id || null,
+      menu_item_id: item.id || item.record_id || null,
       display_name_ar: item.display_name_ar || item.displayNameAr || item.name || 'صنف',
       quantity: Number(item.quantity || 1),
       unit_ar: item.unit_ar || item.unit || null,
@@ -164,6 +168,14 @@ export async function getOrderById(rootDir, orderId) {
   return orders.find(order => order.id === orderId) || null;
 }
 
+export async function getOrderItems(rootDir, orderId) {
+  if (isSupabaseEnabled()) {
+    return selectRows('order_items', { order_id: orderId }, { orderBy: 'created_at', ascending: true, limit: 100 });
+  }
+  const orders = loadCollection(rootDir, 'orders');
+  return orders.find(order => order.id === orderId)?.items || [];
+}
+
 export async function findOrdersByPhone(rootDir, phone) {
   if (isSupabaseEnabled()) {
     return selectRows('orders', { phone }, { orderBy: 'created_at', ascending: false, limit: 20 });
@@ -172,11 +184,22 @@ export async function findOrdersByPhone(rootDir, phone) {
   return orders.filter(order => order.phone === phone);
 }
 
-export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr) {
+export async function getOrdersByStatus(rootDir, status, limit = 20) {
+  if (isSupabaseEnabled()) {
+    return selectRows('orders', { status }, { orderBy: 'created_at', ascending: false, limit });
+  }
+  const orders = loadCollection(rootDir, 'orders');
+  return orders.filter(order => order.status === status).slice(0, limit);
+}
+
+export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr, extra = {}) {
   if (isSupabaseEnabled()) {
     return patchRows('orders', { id: orderId }, {
       status,
       status_label_ar: statusLabelAr,
+      approved_by_phone: extra.approvedByPhone || undefined,
+      approved_at: extra.approvedAt || undefined,
+      admin_notes: extra.adminNotes || undefined,
       updated_at: new Date().toISOString()
     });
   }
@@ -186,6 +209,9 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr)
   orders[index].status = status;
   orders[index].statusLabelAr = statusLabelAr;
   orders[index].updatedAt = new Date().toISOString();
+  if (extra.adminNotes) orders[index].adminNotes = extra.adminNotes;
+  if (extra.approvedByPhone) orders[index].approvedByPhone = extra.approvedByPhone;
+  if (extra.approvedAt) orders[index].approvedAt = extra.approvedAt;
   saveCollection(rootDir, 'orders', orders);
   return orders[index];
 }
