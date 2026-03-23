@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /storage/
+Disallow: /admin/
+Sitemap: https://matbakh-alyoum.site/sitemap.xml

@@ -1,0 +1,67 @@
+services:
+  - type: web
+    name: matbakh-alyoum-smart-bot
+    runtime: node
+    plan: starter
+    region: frankfurt
+    autoDeploy: true
+    buildCommand: ""
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: BASE_URL
+        value: https://matbakh-alyoum.site
+      - key: DIRECT_CALL_PHONE
+        value: "0779960015"
+      - key: DIRECT_CALL_PHONE_INTL
+        value: "+962779960015"
+      - key: BUSINESS_EMAIL
+        value: info@matbakh-alyoum.site
+      - key: ORDER_START
+        value: "10:00"
+      - key: LAST_SAME_DAY_ORDER
+        value: "17:30"
+      - key: LAST_DELIVERY
+        value: "18:30"
+      - key: DELIVERY_TIME_SLOTS
+        value: 10:00-11:00,11:00-12:30,12:30-14:00,14:00-15:30,15:30-17:00,17:00-18:30
+      - key: ALLOW_PUBLIC_ADMIN
+        value: "false"
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_BUSINESS_NUMBER
+        sync: false
+      - key: WHATSAPP_HUMAN_ESCALATION_NUMBER
+        value: "0779960015"
+      - key: META_PIXEL_ID
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_TEST_EVENT_CODE
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SCHEMA
+        value: public
+      - key: ADMIN_NUMBERS
+        sync: false
+      - key: APP_SECRET
+        generateValue: true

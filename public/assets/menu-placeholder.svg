@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#faf7f2"/>
+      <stop offset="100%" stop-color="#efe2cd"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="60" y="60" width="1080" height="510" rx="36" fill="#fff" stroke="#eadfce" stroke-width="3"/>
+  <circle cx="170" cy="165" r="68" fill="#704214"/>
+  <text x="260" y="160" font-size="64" font-family="Tahoma, Arial, sans-serif" fill="#2a1b0d" font-weight="700">مطبخ اليوم المركزي</text>
+  <text x="260" y="225" font-size="32" font-family="Tahoma, Arial, sans-serif" fill="#5d4b3d">أكل بيتي في عمّان • محاشي • أطباق رئيسية • مفرزات</text>
+  <text x="120" y="360" font-size="30" font-family="Tahoma, Arial, sans-serif" fill="#704214" font-weight="700">طلب مباشر • توصيل منظم • حضور رقمي موثوق</text>
+  <text x="120" y="425" font-size="26" font-family="Tahoma, Arial, sans-serif" fill="#6e6a66">matbakh-alyoum.site</text>
+  <text x="120" y="475" font-size="26" font-family="Tahoma, Arial, sans-serif" fill="#6e6a66">0779960015</text>
+</svg>

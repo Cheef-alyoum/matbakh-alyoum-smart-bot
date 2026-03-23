@@ -1,0 +1,67 @@
+{
+  "sections": [
+    {
+      "section_ar": "عالم المحاشي",
+      "count": 8
+    },
+    {
+      "section_ar": "العروض المجمعة",
+      "count": 6
+    },
+    {
+      "section_ar": "الأطباق الرئيسية",
+      "count": 21
+    },
+    {
+      "section_ar": "أطباق نفرات",
+      "count": 8
+    },
+    {
+      "section_ar": "عالم المفتول",
+      "count": 4
+    },
+    {
+      "section_ar": "عالم اليالنجي",
+      "count": 7
+    },
+    {
+      "section_ar": "السلطات",
+      "count": 7
+    },
+    {
+      "section_ar": "الشوربات",
+      "count": 3
+    },
+    {
+      "section_ar": "المقالي",
+      "count": 5
+    },
+    {
+      "section_ar": "المفرزات",
+      "count": 7
+    },
+    {
+      "section_ar": "ولائم ومحاشي الذبائح",
+      "count": 18
+    }
+  ],
+  "status_counts": {
+    "ready": 24,
+    "raw": 8,
+    "bundle": 6,
+    "made_to_order": 49,
+    "frozen": 7
+  },
+  "review_items": [
+    {
+      "record_id": "MY-0046",
+      "display_name_ar": "شوربة المفتول",
+      "review_note": "السعر يحتاج تأكيد"
+    },
+    {
+      "record_id": "MY-0079",
+      "display_name_ar": "محشي ورق عنب - خاروف كامل - بلدي - خاروف",
+      "review_note": "الوصف/التسمية تحتاج تأكيد"
+    }
+  ]
+}

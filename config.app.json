@@ -1,0 +1,59 @@
+{
+  "ok": true,
+  "app": "مطبخ اليوم المركزي",
+  "business": "مطبخ اليوم المركزي",
+  "timezone": "Asia/Amman",
+  "today": "23/03/2026",
+  "adminCount": 3,
+  "directCallPhone": "0779960015",
+  "orderWindow": {
+    "start": "10:00",
+    "lastSameDayOrder": "17:30",
+    "lastDelivery": "18:30"
+  },
+  "deliveryTimeSlots": [
+    "10:00-11:00",
+    "11:00-12:30",
+    "12:30-14:00",
+    "14:00-15:30",
+    "15:30-17:00",
+    "17:00-18:30"
+  ],
+  "site": {
+    "baseUrl": "https://matbakh-alyoum.site",
+    "canonicalDomain": "matbakh-alyoum.site",
+    "businessPhoneDisplay": "0779960015",
+    "businessPhoneIntl": "+962779960015",
+    "email": "info@matbakh-alyoum.site",
+    "city": "عمّان",
+    "district": "أم السماق",
+    "country": "الأردن",
+    "deliveryArea": "عمّان",
+    "googleBusinessReady": true,
+    "metaVerifiedDomain": true
+  },
+  "seo": {
+    "primaryKeywords": [
+      "أكل بيتي في عمان",
+      "طلب أكل بيتي في عمان",
+      "محاشي في عمان",
+      "ورق عنب في عمان",
+      "مقلوبة في عمان",
+      "يالنجي في عمان",
+      "مطبخ منزلي في عمان",
+      "مفرزات في عمان",
+      "طبخات بيتية في عمان",
+      "توصيل أكل بيتي في عمان"
+    ],
+    "brandDescription": "مطبخ اليوم المركزي في عمّان متخصص بالأكل البيتي المحلي، المحاشي، الأطباق الرئيسية، المفرزات، والطلبات المنزلية مع توصيل منظم وطلب مباشر عبر واتساب."
+  },
+  "features": {
+    "publicWebsite": true,
+    "whatsappBot": true,
+    "metaCapi": true,
+    "voiceMessages": true,
+    "structuredData": true,
+    "publicMenu": true,
+    "publicOrderTracking": true
+  }
+}

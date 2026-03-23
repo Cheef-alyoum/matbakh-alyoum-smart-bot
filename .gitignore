@@ -1,0 +1,6 @@
+node_modules
+.env
+storage/*.json
+!storage/.gitkeep
+*.log
+.DS_Store

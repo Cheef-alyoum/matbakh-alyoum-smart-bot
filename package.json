@@ -1,0 +1,17 @@
+{
+  "name": "matbakh-alyoum-smart-bot",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "بوت مطبخ اليوم المركزي + موقع عام + Meta CAPI + WhatsApp Webhook + SEO/Schema",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed:storage": "node scripts/seed-storage.js",
+    "validate:app": "node scripts/validate-app.js",
+    "smoke:local": "node scripts/smoke-test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
