@@ -1,4 +1,4 @@
-﻿import crypto from 'node:crypto';
+import crypto from 'node:crypto';
 import { parseBody, json, normalizePhone, slugify } from '../utils/core.js';
 import { getDeliveryGroupByKey, getDeliveryGroupList, getDeliveryZoneById } from './delivery.service.js';
 import { getBotRoots, getItemExtras, getItemsForRoot, getMenuItemById } from './menu.service.js';
@@ -56,7 +56,7 @@ const BUTTON_IDS = {
 };
 
 const TERMINAL_STATUSES = ['delivered', 'cancelled', 'rejected', 'customer_exit'];
-const TRACK_TERMS = /(ط­ط§ظ„ط©|ظ…طھط§ط¨ط¹ط©|ظˆظٹظ†|ط¬ط§ظ‡ط²|ظˆطµظ„|ط·ظ„ط¨ظٹ|tracking|track|status)/i;
+const TRACK_TERMS = /(حالة|متابعة|وين|جاهز|وصل|طلبي|tracking|track|status)/i;
 
 export function whatsappVerify(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -70,7 +70,7 @@ export function whatsappVerify(req, res) {
     return res.end(challenge);
   }
 
-  return json(res, 403, { ok: false, message: 'ظپط´ظ„ ط§ظ„طھط­ظ‚ظ‚ ظ…ظ† Webhook.' });
+  return json(res, 403, { ok: false, message: 'فشل التحقق من Webhook.' });
 }
 
 function getBaseUrl(config, req) {
@@ -110,38 +110,38 @@ function logWebhook(event, payload = {}) {
 }
 
 function money(value) {
-  return `${Number(value || 0).toFixed(3)} ط¯.ط£`;
+  return `${Number(value || 0).toFixed(3)} د.أ`;
 }
 
 function labelFromStatus(status) {
   return {
-    awaiting_admin_review: 'ط¨ط§ظ†طھط¸ط§ط± ط§ط¹طھظ…ط§ط¯ ط§ظ„ط¥ط¯ط§ط±ط©',
-    awaiting_customer_edit: 'ط¨ط§ظ†طھط¸ط§ط± طھط¹ط¯ظٹظ„ظƒ',
-    approved: 'طھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨',
-    preparing: 'ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط±',
-    ready: 'ط·ظ„ط¨ظƒ ط¬ط§ظ‡ط²',
-    out_for_delivery: 'ظ‚ظٹط¯ ط§ظ„طھظˆطµظٹظ„',
-    delivered: 'طھظ… ط§ظ„طھط³ظ„ظٹظ…',
-    rejected: 'ظ„ظ… ظٹطھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨',
-    customer_exit: 'طھظ… ط¥ط؛ظ„ط§ظ‚ ط§ظ„ط·ظ„ط¨'
-  }[status] || 'ظ‚ظٹط¯ ط§ظ„ظ…طھط§ط¨ط¹ط©';
+    awaiting_admin_review: 'بانتظار اعتماد الإدارة',
+    awaiting_customer_edit: 'بانتظار تعديلك',
+    approved: 'تم اعتماد الطلب',
+    preparing: 'قيد التحضير',
+    ready: 'طلبك جاهز',
+    out_for_delivery: 'قيد التوصيل',
+    delivered: 'تم التسليم',
+    rejected: 'لم يتم اعتماد الطلب',
+    customer_exit: 'تم إغلاق الطلب'
+  }[status] || 'قيد المتابعة';
 }
 
 function mapPrepStatusToCustomer(status, orderId, notes = '') {
   if (status === 'approved') {
-    return `طھظ… ط§ط¹طھظ…ط§ط¯ ط·ظ„ط¨ظƒ âœ…\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${orderId}\nط·ط±ظٹظ‚ط© ط§ظ„ط¯ظپط¹: ط§ظ„ط¯ظپط¹ ط¹ظ†ط¯ ط§ظ„ط§ط³طھظ„ط§ظ… - ظƒط§ط´\nط³ظ†ظˆط§ظپظٹظƒ ط¨طھط­ط¯ظٹط«ط§طھ ط§ظ„ط·ظ„ط¨ ط­طھظ‰ ط§ظ„طھط³ظ„ظٹظ….`;
+    return `تم اعتماد طلبك ✅\nرقم الطلب: ${orderId}\nطريقة الدفع: الدفع عند الاستلام - كاش\nسنوافيك بتحديثات الطلب حتى التسليم.`;
   }
   if (status === 'awaiting_customer_edit') {
-    return `ط·ظ„ط¨ظƒ ظٹط­طھط§ط¬ طھط¹ط¯ظٹظ„ظ‹ط§ ط¨ط³ظٹط·ظ‹ط§ ظ‚ط¨ظ„ ط§ظ„ط§ط¹طھظ…ط§ط¯ ًںŒ؟\nط³ظ†ط±طھط¨ ظ…ط¹ظƒ ط§ظ„طھط¹ط¯ظٹظ„ ط§ظ„ط¢ظ† ط­طھظ‰ ظ†ط«ط¨ظ‘طھظ‡ ط¨ط§ظ„ط´ظƒظ„ ط§ظ„طµط­ظٹط­.${notes ? `\n\nظ…ظ„ط§ط­ط¸ط© ط§ظ„ط¥ط¯ط§ط±ط©: ${notes}` : ''}`;
+    return `طلبك يحتاج تعديلًا بسيطًا قبل الاعتماد 🌿\nسنرتب معك التعديل الآن حتى نثبّته بالشكل الصحيح.${notes ? `\n\nملاحظة الإدارة: ${notes}` : ''}`;
   }
   if (status === 'rejected') {
-    return `ظ†ط¹طھط°ط± ظ…ظ†ظƒطŒ ظ„ظ… ظٹطھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨ ط§ظ„ط­ط§ظ„ظٹ. ط¥ط°ط§ ط±ط؛ط¨طھ ظ†ط¹ظٹط¯ طھط±طھظٹط¨ظ‡ ظ…ط¹ظƒ ط£ظˆ ظ†ط­ظˆظ„ظƒ ظ…ط¨ط§ط´ط±ط© ظ„ظ…ظˆط¸ظپ.${notes ? `\n\n${notes}` : ''}`;
+    return `نعتذر منك، لم يتم اعتماد الطلب الحالي. إذا رغبت نعيد ترتيبه معك أو نحولك مباشرة لموظف.${notes ? `\n\n${notes}` : ''}`;
   }
-  if (status === 'preparing') return `ط·ظ„ط¨ظƒ ط§ظ„ط¢ظ† ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط± ًں‘¨â€چًںچ³\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${orderId}`;
-  if (status === 'ready') return `ط·ظ„ط¨ظƒ ط£طµط¨ط­ ط¬ط§ظ‡ط²ظ‹ط§ âœ…\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${orderId}`;
-  if (status === 'out_for_delivery') return `ط·ظ„ط¨ظƒ ظ‚ظٹط¯ ط§ظ„طھظˆطµظٹظ„ ط§ظ„ط¢ظ† ًںڑڑ\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${orderId}`;
-  if (status === 'delivered') return `طھظ… طھط³ظ„ظٹظ… ط·ظ„ط¨ظƒ ط¨ظ†ط¬ط§ط­ âœ…\nظ†طھظ…ظ†ظ‰ ظ„ظƒ ظˆط¬ط¨ط© ظ‡ظ†ظٹظ‘ط© ظˆظ†ط³ط¹ط¯ ط¨طھظ‚ظٹظٹظ…ظƒ ط¨ط¹ط¯ ط§ظ„طھط¬ط±ط¨ط©.`;
-  return `ط­ط§ظ„ط© ط·ظ„ط¨ظƒ ط§ظ„ط­ط§ظ„ظٹط©: ${labelFromStatus(status)}\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${orderId}`;
+  if (status === 'preparing') return `طلبك الآن قيد التحضير 👨‍🍳\nرقم الطلب: ${orderId}`;
+  if (status === 'ready') return `طلبك أصبح جاهزًا ✅\nرقم الطلب: ${orderId}`;
+  if (status === 'out_for_delivery') return `طلبك قيد التوصيل الآن 🚚\nرقم الطلب: ${orderId}`;
+  if (status === 'delivered') return `تم تسليم طلبك بنجاح ✅\nنتمنى لك وجبة هنيّة ونسعد بتقييمك بعد التجربة.`;
+  return `حالة طلبك الحالية: ${labelFromStatus(status)}\nرقم الطلب: ${orderId}`;
 }
 
 function shortButton(title) {
@@ -156,34 +156,34 @@ function readIncomingSelection(message, rootDir = '') {
     return message.interactive.list_reply?.id || '';
   }
   const text = String(message.text?.body || '').trim();
-  const simple = text.replace(/ًںŒ؟|âœ…|ًںڑڑ|ًں‘¨â€چًںچ³/g, '').trim();
+  const simple = text.replace(/🌿|✅|🚚|👨‍🍳/g, '').trim();
   const map = {
-    'ط§ظ„ط¹ط±ط¨ظٹط©': BUTTON_IDS.AR,
+    'العربية': BUTTON_IDS.AR,
     'english': BUTTON_IDS.EN,
-    'ط£ظˆط§ظپظ‚': BUTTON_IDS.CONSENT_YES,
-    'ط®ط¯ظ…ط© ظپظ‚ط·': BUTTON_IDS.CONSENT_SERVICE_ONLY,
-    'ظ„ط§ ط£ظˆط§ظپظ‚': BUTTON_IDS.CONSENT_NO,
-    'ط§ط·ظ„ط¨': BUTTON_IDS.START_ORDER,
-    'ط§ط¨ط¯ط£ ط§ظ„ط·ظ„ط¨': BUTTON_IDS.START_ORDER,
-    'ط§ظ„ظ…ظ†ظٹظˆ': BUTTON_IDS.SHOW_MENU,
-    'طھطھط¨ط¹': BUTTON_IDS.TRACK_ORDER,
-    'ظ…ظˆط¸ظپ': BUTTON_IDS.HUMAN,
-    'ظ…ظˆط¸ظپ ظ…ط¨ط§ط´ط±': BUTTON_IDS.HUMAN,
-    'ط¥ط¶ط§ظپط©': BUTTON_IDS.ADD_MORE,
-    'ظ…طھط§ط¨ط¹ط©': BUTTON_IDS.CHECKOUT,
-    'ط¥ظ„ط؛ط§ط،': BUTTON_IDS.CLEAR_CART,
-    'طھظˆطµظٹظ„': BUTTON_IDS.DELIVERY,
-    'ط§ط³طھظ„ط§ظ…': BUTTON_IDS.PICKUP,
-    'ظƒط§ط´': BUTTON_IDS.PAY_CASH,
-    'ظ…ظ„ط§ط­ط¸ط§طھ': BUTTON_IDS.NOTES_ADD,
-    'ط¨ط¯ظˆظ† ظ…ظ„ط§ط­ط¸ط§طھ': BUTTON_IDS.NOTES_SKIP,
-    'طھط£ظƒظٹط¯': BUTTON_IDS.CUSTOMER_CONFIRM,
-    'طھط¹ط¯ظٹظ„': BUTTON_IDS.CUSTOMER_EDIT,
-    'ط®ط±ظˆط¬': BUTTON_IDS.CUSTOMER_EXIT,
-    'ط§ظ„ط£طµظ†ط§ظپ': BUTTON_IDS.EDIT_ITEMS,
-    'ط§ظ„ظ…ظˆط¹ط¯': BUTTON_IDS.EDIT_SCHEDULE,
-    'ط§ظ„ظ…ظ†ط·ظ‚ط©': BUTTON_IDS.EDIT_ZONE,
-    'ط§ظ„ظ…ظ„ط§ط­ط¸ط§طھ': BUTTON_IDS.EDIT_NOTES
+    'أوافق': BUTTON_IDS.CONSENT_YES,
+    'خدمة فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
+    'لا أوافق': BUTTON_IDS.CONSENT_NO,
+    'اطلب': BUTTON_IDS.START_ORDER,
+    'ابدأ الطلب': BUTTON_IDS.START_ORDER,
+    'المنيو': BUTTON_IDS.SHOW_MENU,
+    'تتبع': BUTTON_IDS.TRACK_ORDER,
+    'موظف': BUTTON_IDS.HUMAN,
+    'موظف مباشر': BUTTON_IDS.HUMAN,
+    'إضافة': BUTTON_IDS.ADD_MORE,
+    'متابعة': BUTTON_IDS.CHECKOUT,
+    'إلغاء': BUTTON_IDS.CLEAR_CART,
+    'توصيل': BUTTON_IDS.DELIVERY,
+    'استلام': BUTTON_IDS.PICKUP,
+    'كاش': BUTTON_IDS.PAY_CASH,
+    'ملاحظات': BUTTON_IDS.NOTES_ADD,
+    'بدون ملاحظات': BUTTON_IDS.NOTES_SKIP,
+    'تأكيد': BUTTON_IDS.CUSTOMER_CONFIRM,
+    'تعديل': BUTTON_IDS.CUSTOMER_EDIT,
+    'خروج': BUTTON_IDS.CUSTOMER_EXIT,
+    'الأصناف': BUTTON_IDS.EDIT_ITEMS,
+    'الموعد': BUTTON_IDS.EDIT_SCHEDULE,
+    'المنطقة': BUTTON_IDS.EDIT_ZONE,
+    'الملاحظات': BUTTON_IDS.EDIT_NOTES
   };
   if (map[simple.toLowerCase()]) return map[simple.toLowerCase()];
   if (map[simple]) return map[simple];
@@ -204,7 +204,7 @@ function buildLocationText(message) {
   if (name) parts.push(name);
   if (address) parts.push(address);
   if (latitude && longitude) parts.push(`https://maps.google.com/?q=${latitude},${longitude}`);
-  return parts.join(' â€” ');
+  return parts.join(' — ');
 }
 
 function defaultDraft() {
@@ -277,14 +277,14 @@ async function persistSession(rootDir, phone, session, patch = {}) {
 
 function welcomeButtons(returning = false, language = 'ar') {
   const body = returning
-    ? 'ظٹط³ط¹ط¯ظ†ط§ طھظˆط§طµظ„ظƒ ظ…ط¹ظ†ط§ ظ…ظ† ط¬ط¯ظٹط¯ ًںŒ؟\nظ†ط±طھط¨ ظ„ظƒ ط·ظ„ط¨ظƒ ط¨ط³ط±ط¹ط© ظˆظ†ط­ظپط¸ ظ„ظƒ ط§ظ„ظ…طھط§ط¨ط¹ط© ظ…ظ† ط±ظ‚ظ…ظƒ ظ…ط¨ط§ط´ط±ط©. ط§ط®طھط± ط§ظ„ظ„ط؛ط© ط£ظˆ ط§ط·ظ„ط¨ ظ…ظˆط¸ظپظ‹ط§.'
-    : 'ط£ظ‡ظ„ظ‹ط§ ظˆط³ظ‡ظ„ظ‹ط§ ط¨ظƒ ظپظٹ ظ…ط·ط¨ط® ط§ظ„ظٹظˆظ… ط§ظ„ظ…ط±ظƒط²ظٹ ًںŒ؟\nط£ظƒظ„ط§طھ ط¨ظٹطھظٹط© ظ…ط­ظ„ظٹط© ط¨ط·ط¹ظ… ط£طµظٹظ„ ظˆط¬ظˆط¯ط© طھظ„ظٹظ‚ ط¨ط°ظˆظ‚ظƒ. ط§ط®طھط± ط§ظ„ظ„ط؛ط© ط£ظˆ ط§ط·ظ„ط¨ ط§ظ„ظ…ط³ط§ط¹ط¯ط© ظ…ظ† ظ…ظˆط¸ظپ ظ…ط¨ط§ط´ط±.';
+    ? 'يسعدنا تواصلك معنا من جديد 🌿\nنرتب لك طلبك بسرعة ونحفظ لك المتابعة من رقمك مباشرة. اختر اللغة أو اطلب موظفًا.'
+    : 'أهلًا وسهلًا بك في مطبخ اليوم المركزي 🌿\nأكلات بيتية محلية بطعم أصيل وجودة تليق بذوقك. اختر اللغة أو اطلب المساعدة من موظف مباشر.';
   if (language === 'en') {
     return {
       type: 'button',
       body: { text: 'Welcome to Matbakh Al Youm. Choose your language or contact a staff member directly.' },
       action: { buttons: [
-        { type: 'reply', reply: { id: BUTTON_IDS.AR, title: shortButton('ط§ظ„ط¹ط±ط¨ظٹط©') } },
+        { type: 'reply', reply: { id: BUTTON_IDS.AR, title: shortButton('العربية') } },
         { type: 'reply', reply: { id: BUTTON_IDS.EN, title: shortButton('English') } },
         { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('Staff') } }
       ] }
@@ -294,9 +294,9 @@ function welcomeButtons(returning = false, language = 'ar') {
     type: 'button',
     body: { text: body },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.AR, title: shortButton('ط§ظ„ط¹ط±ط¨ظٹط©') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.AR, title: shortButton('العربية') } },
       { type: 'reply', reply: { id: BUTTON_IDS.EN, title: shortButton('English') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('ظ…ظˆط¸ظپ') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('موظف') } }
     ] }
   };
 }
@@ -315,11 +315,11 @@ function consentButtons(language = 'ar') {
   }
   return {
     type: 'button',
-    body: { text: 'ظ‚ط¨ظ„ ط§ظ„ظ…طھط§ط¨ط¹ط© ًںŒ؟\nظ†ط³طھط®ط¯ظ… ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ…ط­ط§ط¯ط«ط© ظ„طھط­ط³ظٹظ† ط§ظ„ط®ط¯ظ…ط© ظˆطھظ†ط¸ظٹظ… ط§ظ„ط·ظ„ط¨ط§طھ ط¶ظ…ظ† ط­ط¯ظˆط¯ ط§ظ„ط¹ظ…ظ„. ظ‡ظ„ طھظˆط§ظپظ‚ظˆظ† ط¹ظ„ظ‰ ط§ط³طھظ‚ط¨ط§ظ„ ط§ظ„ط¹ط±ظˆط¶ ظˆط§ظ„طھط­ط¯ظٹط«ط§طھ ط§ظ„ظ…ط±طھط¨ط·ط© ط¨ط§ظ„ط®ط¯ظ…ط©طں' },
+    body: { text: 'قبل المتابعة 🌿\nنستخدم بيانات المحادثة لتحسين الخدمة وتنظيم الطلبات ضمن حدود العمل. هل توافقون على استقبال العروض والتحديثات المرتبطة بالخدمة؟' },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_YES, title: shortButton('ط£ظˆط§ظپظ‚') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_SERVICE_ONLY, title: shortButton('ط®ط¯ظ…ط© ظپظ‚ط·') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_NO, title: shortButton('ظ„ط§ ط£ظˆط§ظپظ‚') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_YES, title: shortButton('أوافق') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_SERVICE_ONLY, title: shortButton('خدمة فقط') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_NO, title: shortButton('لا أوافق') } }
     ] }
   };
 }
@@ -327,11 +327,11 @@ function consentButtons(language = 'ar') {
 function mainMenuButtons() {
   return {
     type: 'button',
-    body: { text: 'ظƒظٹظپ ظٹظ…ظƒظ†ظ†ط§ ط®ط¯ظ…طھظƒ ط§ظ„ظٹظˆظ…طں ط§ط®طھط± ط§ظ„ظ…ط³ط§ط± ط§ظ„ظ…ظ†ط§ط³ط¨ ظˆط³ظ†ظƒظ…ظ„ ظ…ط¹ظƒ ط®ط·ظˆط© ط¨ط®ط·ظˆط© ًںŒ؟' },
+    body: { text: 'كيف يمكننا خدمتك اليوم؟ اختر المسار المناسب وسنكمل معك خطوة بخطوة 🌿' },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.START_ORDER, title: shortButton('ط§ط·ظ„ط¨') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.TRACK_ORDER, title: shortButton('طھطھط¨ط¹') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('ظ…ظˆط¸ظپ') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.START_ORDER, title: shortButton('اطلب') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.TRACK_ORDER, title: shortButton('تتبع') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('موظف') } }
     ] }
   };
 }
@@ -340,14 +340,14 @@ function rootList(rootDir) {
   const rows = getBotRoots(rootDir).slice(0, 10).map(root => ({
     id: `root:${root.id}`,
     title: shortButton(root.title),
-    description: `${root.count} ط®ظٹط§ط±`
+    description: `${root.count} خيار`
   }));
   return {
     type: 'list',
-    body: { text: 'ط§ط®طھط± ط§ظ„ظ‚ط³ظ… ط§ظ„ط±ط¦ظٹط³ظٹ ط£ظˆظ„ظ‹ط§طŒ ظˆط¨ط¹ط¯ظ‡ط§ ظ†ط±طھط¨ ظ„ظƒ ط§ظ„ظ†ظˆط¹ ظˆط§ظ„طµظ†ظپ ظˆط§ظ„ظƒظ…ظٹط© ط¨ط´ظƒظ„ ط§ط­طھط±ط§ظپظٹ ًںŒ؟' },
+    body: { text: 'اختر القسم الرئيسي أولًا، وبعدها نرتب لك النوع والصنف والكمية بشكل احترافي 🌿' },
     action: {
-      button: 'ط§ظ„ط£ظ‚ط³ط§ظ…',
-      sections: [{ title: 'ظ…ظ†ظٹظˆ ظ…ط·ط¨ط® ط§ظ„ظٹظˆظ…', rows }]
+      button: 'الأقسام',
+      sections: [{ title: 'منيو مطبخ اليوم', rows }]
     }
   };
 }
@@ -365,16 +365,16 @@ function simpleChoiceList(bodyText, buttonText, title, rows) {
 
 function buildTypeList(rootId) {
   if (rootId === 'meat') {
-    return simpleChoiceList('ط§ط®طھط± ظ†ظˆط¹ ط§ظ„ظ„ط­ظ… ط£ظˆظ„ظ‹ط§ ًںŒ؟', 'ط§ط®طھط±', 'ظ†ظˆط¹ ط§ظ„ظ„ط­ظ…', [
-      { id: 'type:ط¨ظ„ط¯ظٹ', title: 'ط¨ظ„ط¯ظٹ', description: 'ط£ط·ط¨ط§ظ‚ ط§ظ„ظ„ط­ظˆظ… ط§ظ„ط¨ظ„ط¯ظٹ' },
-      { id: 'type:ط±ظˆظ…ط§ظ†ظٹ', title: 'ط±ظˆظ…ط§ظ†ظٹ', description: 'ط£ط·ط¨ط§ظ‚ ط§ظ„ظ„ط­ظˆظ… ط§ظ„ط±ظˆظ…ط§ظ†ظٹ' }
+    return simpleChoiceList('اختر نوع اللحم أولًا 🌿', 'اختر', 'نوع اللحم', [
+      { id: 'type:بلدي', title: 'بلدي', description: 'أطباق اللحوم البلدي' },
+      { id: 'type:روماني', title: 'روماني', description: 'أطباق اللحوم الروماني' }
     ]);
   }
   if (rootId === 'catering') {
-    return simpleChoiceList('ط§ط®طھط± ظپط¦ط© ط§ظ„ظˆظ„ظٹظ…ط© ط£ظˆظ„ظ‹ط§ ًںŒ؟', 'ط§ظ„ظپط¦ط§طھ', 'ط§ظ„ظˆظ„ط§ط¦ظ…', [
-      { id: 'category:ط®ط§ط±ظˆظپ ظƒط§ظ…ظ„', title: 'ط®ط§ط±ظˆظپ ظƒط§ظ…ظ„', description: 'ظˆظ„ط§ط¦ظ… ظƒط§ظ…ظ„ط©' },
-      { id: 'category:ظ†طµظپ ط®ط§ط±ظˆظپ', title: 'ظ†طµظپ ط®ط§ط±ظˆظپ', description: 'ظ†طµظپ ط°ط¨ظٹط­ط©' },
-      { id: 'category:ط¶ظ„ط¹ط©', title: 'ط¶ظ„ط¹ط©', description: 'ظ…ط­ط§ط´ظٹ ط§ظ„ط¶ظ„ط¹ط©' }
+    return simpleChoiceList('اختر فئة الوليمة أولًا 🌿', 'الفئات', 'الولائم', [
+      { id: 'category:خاروف كامل', title: 'خاروف كامل', description: 'ولائم كاملة' },
+      { id: 'category:نصف خاروف', title: 'نصف خاروف', description: 'نصف ذبيحة' },
+      { id: 'category:ضلعة', title: 'ضلعة', description: 'محاشي الضلعة' }
     ]);
   }
   return null;
@@ -382,21 +382,21 @@ function buildTypeList(rootId) {
 
 function statusRowsFromItems(items) {
   const map = new Map([
-    ['ready', { title: 'ظ…ط·ط¨ظˆط®', description: 'ط¬ط§ظ‡ط² ظ„ظ„ط£ظƒظ„' }],
-    ['raw', { title: 'ط¬ط§ظ‡ط² ظ„ظ„ط·ط¨ط®', description: 'طھط­ط¶ظٹط± ظ…ظ†ط²ظ„ظٹ' }],
-    ['frozen', { title: 'ظ…ظپط±ط²', description: 'ط­ظپط¸ ط¨ط§ظ„طھط¬ظ…ظٹط¯' }],
-    ['made_to_order', { title: 'ط­ط³ط¨ ط§ظ„ط·ظ„ط¨', description: 'ظٹظڈط­ط¶ظ‘ط± ظ„ظƒ' }],
-    ['bundle', { title: 'ط§ظ„ط¹ط±ظˆط¶', description: 'ظˆط¬ط¨ط§طھ ظ…ط¬ظ…ط¹ط©' }]
+    ['ready', { title: 'مطبوخ', description: 'جاهز للأكل' }],
+    ['raw', { title: 'جاهز للطبخ', description: 'تحضير منزلي' }],
+    ['frozen', { title: 'مفرز', description: 'حفظ بالتجميد' }],
+    ['made_to_order', { title: 'حسب الطلب', description: 'يُحضّر لك' }],
+    ['bundle', { title: 'العروض', description: 'وجبات مجمعة' }]
   ]);
   return [...new Set(items.map(item => item.status).filter(Boolean))]
     .filter(status => map.has(status))
     .map(status => ({ id: `status:${status}`, title: shortButton(map.get(status).title), description: map.get(status).description }));
 }
 
-function buildStatusList(items, prompt = 'ط§ط®طھط± ظ†ظˆط¹ ط§ظ„طھط¬ظ‡ظٹط² ط§ظ„ظ…ظ†ط§ط³ط¨ ًںŒ؟') {
+function buildStatusList(items, prompt = 'اختر نوع التجهيز المناسب 🌿') {
   const rows = statusRowsFromItems(items);
   if (rows.length <= 1) return null;
-  return simpleChoiceList(prompt, 'ط§ظ„طھط¬ظ‡ظٹط²', 'ظ†ظˆط¹ ط§ظ„طھط¬ظ‡ظٹط²', rows);
+  return simpleChoiceList(prompt, 'التجهيز', 'نوع التجهيز', rows);
 }
 
 function getFilteredItems(rootDir, draft) {
@@ -423,22 +423,22 @@ function itemList(rootDir, draft, page = 0) {
   const rows = chunk.map(item => ({
     id: `item:${item.record_id}`,
     title: shortButton(item.display_name_ar || item.item_name_ar),
-    description: `${money(item.price_1_jod)} â€” ${String(item.unit_ar || '').slice(0, 20)}`
+    description: `${money(item.price_1_jod)} — ${String(item.unit_ar || '').slice(0, 20)}`
   }));
   if (items.length > (page + 1) * pageSize) {
-    rows.push({ id: `items_page:${page + 1}`, title: 'ظ…ط²ظٹط¯', description: `طµظپط­ط© ${page + 2}` });
+    rows.push({ id: `items_page:${page + 1}`, title: 'مزيد', description: `صفحة ${page + 2}` });
   }
-  return simpleChoiceList('ط§ط®طھط± ط§ظ„طµظ†ظپ ط§ظ„ظ…ظ†ط§ط³ط¨ ظ…ظ† ط§ظ„ط®ظٹط§ط±ط§طھ ط§ظ„طھط§ظ„ظٹط© ًںŒ؟', 'ط§ظ„ط£طµظ†ط§ظپ', 'ط§ظ„ط£طµظ†ط§ظپ ط§ظ„ظ…طھط§ط­ط©', rows);
+  return simpleChoiceList('اختر الصنف المناسب من الخيارات التالية 🌿', 'الأصناف', 'الأصناف المتاحة', rows);
 }
 
 function quantityList(item) {
   const rows = [1, 2, 3, 4, 5].map(q => ({
     id: `qty:${q}`,
     title: `${q}`,
-    description: `${q} أ— ${String(item.unit_ar || 'ظˆط­ط¯ط©').slice(0, 14)}`
+    description: `${q} × ${String(item.unit_ar || 'وحدة').slice(0, 14)}`
   }));
-  rows.push({ id: 'qty:text', title: 'ظƒظ…ظٹط© ط£ط®ط±ظ‰', description: 'ط£ط±ط³ظ„ ط§ظ„ط±ظ‚ظ… ظٹط¯ظˆظٹظ‹ط§' });
-  return simpleChoiceList(`ط§ط®طھط± ط§ظ„ظƒظ…ظٹط© ط§ظ„ظ…ط·ظ„ظˆط¨ط© ظ…ظ† ${item.display_name_ar || item.item_name_ar}.\nط§ظ„ط³ط¹ط± ظ„ظ„ظˆط­ط¯ط©: ${money(item.price_1_jod)}`, 'ط§ظ„ظƒظ…ظٹط©', 'ط§ط®طھظٹط§ط± ط§ظ„ظƒظ…ظٹط©', rows);
+  rows.push({ id: 'qty:text', title: 'كمية أخرى', description: 'أرسل الرقم يدويًا' });
+  return simpleChoiceList(`اختر الكمية المطلوبة من ${item.display_name_ar || item.item_name_ar}.\nالسعر للوحدة: ${money(item.price_1_jod)}`, 'الكمية', 'اختيار الكمية', rows);
 }
 
 function extrasButtons(item, extras) {
@@ -446,10 +446,10 @@ function extrasButtons(item, extras) {
     type: 'reply',
     reply: { id: `extra:${extra.record_id}`, title: shortButton(extra.display_name_ar || extra.item_name_ar) }
   }));
-  buttons.push({ type: 'reply', reply: { id: 'extra:skip', title: shortButton('ط¨ط¯ظˆظ† ط¥ط¶ط§ظپط©') } });
+  buttons.push({ type: 'reply', reply: { id: 'extra:skip', title: shortButton('بدون إضافة') } });
   return {
     type: 'button',
-    body: { text: `ظ‡ظ„ طھط±ط؛ط¨ ط¨ط¥ط¶ط§ظپط© ط´ظٹط، ط¹ظ„ظ‰ ${item.display_name_ar || item.item_name_ar}طں` },
+    body: { text: `هل ترغب بإضافة شيء على ${item.display_name_ar || item.item_name_ar}؟` },
     action: { buttons }
   };
 }
@@ -457,22 +457,22 @@ function extrasButtons(item, extras) {
 function cartSummary(cart, draft) {
   const subtotal = cart.reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const deliveryFee = Number(draft.deliveryFeeJod || 0);
-  const lines = cart.map((item, index) => `${index + 1}. ${item.displayNameAr} أ— ${item.quantity} = ${money(item.lineTotalJod)}`);
+  const lines = cart.map((item, index) => `${index + 1}. ${item.displayNameAr} × ${item.quantity} = ${money(item.lineTotalJod)}`);
   return {
     subtotal,
     total: subtotal + deliveryFee,
-    text: `ظ…ظ„ط®طµ ط§ظ„ط·ظ„ط¨ ط­طھظ‰ ط§ظ„ط¢ظ† ًںŒ؟\n\n${lines.join('\n')}\n\nط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ط§ظ„ظٹ: ${money(subtotal)}`
+    text: `ملخص الطلب حتى الآن 🌿\n\n${lines.join('\n')}\n\nالإجمالي الحالي: ${money(subtotal)}`
   };
 }
 
 function cartButtons(summaryText) {
   return {
     type: 'button',
-    body: { text: `${summaryText}\n\nط§ط®طھط± ط§ظ„ط¥ط¬ط±ط§ط، ط§ظ„طھط§ظ„ظٹ:` },
+    body: { text: `${summaryText}\n\nاختر الإجراء التالي:` },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.ADD_MORE, title: shortButton('ط¥ط¶ط§ظپط©') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CHECKOUT, title: shortButton('ظ…طھط§ط¨ط¹ط©') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CLEAR_CART, title: shortButton('ط¥ظ„ط؛ط§ط،') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.ADD_MORE, title: shortButton('إضافة') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CHECKOUT, title: shortButton('متابعة') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CLEAR_CART, title: shortButton('إلغاء') } }
     ] }
   };
 }
@@ -480,11 +480,11 @@ function cartButtons(summaryText) {
 function buildDeliveryTypeButtons() {
   return {
     type: 'button',
-    body: { text: 'ط§ط®طھط± ط·ط±ظٹظ‚ط© ط§ظ„ط§ط³طھظ„ط§ظ… ط§ظ„ظ…ظ†ط§ط³ط¨ط© ظ„ط·ظ„ط¨ظƒ ًںŒ؟' },
+    body: { text: 'اختر طريقة الاستلام المناسبة لطلبك 🌿' },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.DELIVERY, title: shortButton('طھظˆطµظٹظ„') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.PICKUP, title: shortButton('ط§ط³طھظ„ط§ظ…') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('طھط¹ط¯ظٹظ„') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.DELIVERY, title: shortButton('توصيل') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.PICKUP, title: shortButton('استلام') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('تعديل') } }
     ] }
   };
 }
@@ -495,59 +495,59 @@ function buildDayOptions(config) {
     const date = new Date();
     date.setDate(date.getDate() + offset);
     const dateIso = date.toISOString().slice(0, 10);
-    const label = offset === 0 ? 'ط§ظ„ظٹظˆظ…' : offset === 1 ? 'ط؛ط¯ظ‹ط§' : formatter.format(date);
+    const label = offset === 0 ? 'اليوم' : offset === 1 ? 'غدًا' : formatter.format(date);
     return { id: `day:${offset}`, title: label, description: dateIso, dateIso, label };
   });
 }
 
 function dayList(config) {
   const rows = buildDayOptions(config).map(option => ({ id: option.id, title: shortButton(option.title), description: option.description }));
-  return simpleChoiceList('ط§ط®طھط± ظٹظˆظ… ط§ظ„طھط³ظ„ظٹظ… ط£ظˆظ„ظ‹ط§ ًںŒ؟', 'ط§ظ„ظٹظˆظ…', 'ط£ظٹط§ظ… ط§ظ„طھط³ظ„ظٹظ…', rows);
+  return simpleChoiceList('اختر يوم التسليم أولًا 🌿', 'اليوم', 'أيام التسليم', rows);
 }
 
 function slotList(config) {
   const rows = (config.deliveryTimeSlots || []).slice(0, 10).map((slot, index) => ({
     id: `slot:${index}`,
     title: shortButton(slot),
-    description: 'ظ…ظˆط¹ط¯ ط§ظ„طھظˆطµظٹظ„'
+    description: 'موعد التوصيل'
   }));
-  return simpleChoiceList('ط§ط®طھط± ط§ظ„ط³ط§ط¹ط© ط§ظ„ظ…ظ†ط§ط³ط¨ط© ظ„ط·ظ„ط¨ظƒ ًںŒ؟', 'ط§ظ„ط³ط§ط¹ط©', 'ط£ظˆظ‚ط§طھ ط§ظ„طھظˆطµظٹظ„', rows);
+  return simpleChoiceList('اختر الساعة المناسبة لطلبك 🌿', 'الساعة', 'أوقات التوصيل', rows);
 }
 
 function sectorList(rootDir) {
   const rows = getDeliveryGroupList(rootDir).slice(0, 10).map(group => ({
     id: `sector:${group.key}:0`,
     title: shortButton(group.title),
-    description: `${group.count} ظ…ظ†ط·ظ‚ط©`
+    description: `${group.count} منطقة`
   }));
-  return simpleChoiceList('ط§ط®طھط± ط§ظ„ظ…ط­ط§ظپط¸ط©/ط§ظ„ظ‚ط·ط§ط¹ ط£ظˆظ„ظ‹ط§ ًںŒ؟', 'ط§ظ„ظ…ظ†ط§ط·ظ‚', 'ط§ظ„ظ‚ط·ط§ط¹ط§طھ', rows);
+  return simpleChoiceList('اختر المحافظة/القطاع أولًا 🌿', 'المناطق', 'القطاعات', rows);
 }
 
 function zoneList(rootDir, sectorKey, page = 0) {
   const group = getDeliveryGroupByKey(rootDir, sectorKey);
-  if (!group) return { type: 'text', text: 'ظ„ظ… ظ†طھظ…ظƒظ† ظ…ظ† ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط§ظ„ظ‚ط·ط§ط¹ ط§ظ„ظ…ط·ظ„ظˆط¨. ط£ط¹ط¯ ط§ط®طھظٹط§ط± ط§ظ„ظ…ظ†ط·ظ‚ط© ظ…ط±ط© ط£ط®ط±ظ‰.' };
+  if (!group) return { type: 'text', text: 'لم نتمكن من العثور على القطاع المطلوب. أعد اختيار المنطقة مرة أخرى.' };
   const pageSize = 9;
   const zones = group.zones || [];
   const chunk = zones.slice(page * pageSize, page * pageSize + pageSize);
   const rows = chunk.map(zone => ({
     id: `zone:${zone.zone_id}`,
     title: shortButton(zone.zone_name_ar),
-    description: `${money(zone.delivery_fee_jod)} طھظˆطµظٹظ„`
+    description: `${money(zone.delivery_fee_jod)} توصيل`
   }));
   if (zones.length > (page + 1) * pageSize) {
-    rows.push({ id: `sector:${sectorKey}:${page + 1}`, title: 'ظ…ط²ظٹط¯', description: `طµظپط­ط© ${page + 2}` });
+    rows.push({ id: `sector:${sectorKey}:${page + 1}`, title: 'مزيد', description: `صفحة ${page + 2}` });
   }
-  return simpleChoiceList(`ط§ط®طھط± ط§ظ„ظ…ظ†ط·ظ‚ط© ط¯ط§ط®ظ„ ${group.group} ًںŒ؟`, 'ط§ظ„ظ…ظ†ط§ط·ظ‚', group.group, rows);
+  return simpleChoiceList(`اختر المنطقة داخل ${group.group} 🌿`, 'المناطق', group.group, rows);
 }
 
 function paymentButtons() {
   return {
     type: 'button',
-    body: { text: 'ط·ط±ظٹظ‚ط© ط§ظ„ط¯ظپط¹ ط§ظ„ظ…ط¹طھظ…ط¯ط© ط­ط§ظ„ظٹظ‹ط§: ط§ظ„ط¯ظپط¹ ط¹ظ†ط¯ ط§ظ„ط§ط³طھظ„ط§ظ… ظƒط§ط´. ظ‡ظ„ ظ†ظƒظ…ظ„طں' },
+    body: { text: 'طريقة الدفع المعتمدة حاليًا: الدفع عند الاستلام كاش. هل نكمل؟' },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.PAY_CASH, title: shortButton('ظƒط§ط´') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('طھط¹ط¯ظٹظ„') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('ظ…ظˆط¸ظپ') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.PAY_CASH, title: shortButton('كاش') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('تعديل') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('موظف') } }
     ] }
   };
 }
@@ -555,44 +555,44 @@ function paymentButtons() {
 function notesButtons() {
   return {
     type: 'button',
-    body: { text: 'ط¥ط°ط§ ط¹ظ†ط¯ظƒ ط£ظٹ ظ…ظ„ط§ط­ط¸ط© ط¥ط¶ط§ظپظٹط© ط¹ظ„ظ‰ ط§ظ„ط·ظ„ط¨ ط£ط®ط¨ط±ظ†ط§ ط§ظ„ط¢ظ† ًںŒ؟' },
+    body: { text: 'إذا عندك أي ملاحظة إضافية على الطلب أخبرنا الآن 🌿' },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.NOTES_ADD, title: shortButton('ظ…ظ„ط§ط­ط¸ط§طھ') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.NOTES_SKIP, title: shortButton('ط¨ط¯ظˆظ† ظ…ظ„ط§ط­ط¸ط§طھ') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('طھط¹ط¯ظٹظ„') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.NOTES_ADD, title: shortButton('ملاحظات') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.NOTES_SKIP, title: shortButton('بدون ملاحظات') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('تعديل') } }
     ] }
   };
 }
 
 function editList() {
-  return simpleChoiceList('ط§ط®طھط± ط§ظ„ط¬ط²ط، ط§ظ„ط°ظٹ طھط±ظٹط¯ طھط¹ط¯ظٹظ„ظ‡ ظپظٹ ط§ظ„ط·ظ„ط¨ ًںŒ؟', 'طھط¹ط¯ظٹظ„', 'طھط¹ط¯ظٹظ„ ط§ظ„ط·ظ„ط¨', [
-    { id: BUTTON_IDS.EDIT_ITEMS, title: 'ط§ظ„ط£طµظ†ط§ظپ', description: 'ط¥ط¶ط§ظپط© ط£ظˆ طھط¹ط¯ظٹظ„ ط§ظ„ط³ظ„ط©' },
-    { id: BUTTON_IDS.EDIT_SCHEDULE, title: 'ط§ظ„ظ…ظˆط¹ط¯', description: 'ط§ظ„ظٹظˆظ… ظˆط§ظ„ط³ط§ط¹ط©' },
-    { id: BUTTON_IDS.EDIT_ZONE, title: 'ط§ظ„ظ…ظ†ط·ظ‚ط©', description: 'ط§ظ„ظ‚ط·ط§ط¹ ظˆط§ظ„ط¹ظ†ظˆط§ظ†' },
-    { id: BUTTON_IDS.EDIT_NOTES, title: 'ط§ظ„ظ…ظ„ط§ط­ط¸ط§طھ', description: 'طھط¹ط¯ظٹظ„ ط§ظ„ظ…ظ„ط§ط­ط¸ط§طھ' }
+  return simpleChoiceList('اختر الجزء الذي تريد تعديله في الطلب 🌿', 'تعديل', 'تعديل الطلب', [
+    { id: BUTTON_IDS.EDIT_ITEMS, title: 'الأصناف', description: 'إضافة أو تعديل السلة' },
+    { id: BUTTON_IDS.EDIT_SCHEDULE, title: 'الموعد', description: 'اليوم والساعة' },
+    { id: BUTTON_IDS.EDIT_ZONE, title: 'المنطقة', description: 'القطاع والعنوان' },
+    { id: BUTTON_IDS.EDIT_NOTES, title: 'الملاحظات', description: 'تعديل الملاحظات' }
   ]);
 }
 
 function buildCustomerFinalSummary(cart, draft) {
   const summary = cartSummary(cart, draft);
-  const deliveryTypeLabel = draft.deliveryType === 'pickup' ? 'ط§ط³طھظ„ط§ظ… ظ…ظ† ط§ظ„ظ…ط·ط¨ط®' : 'طھظˆطµظٹظ„';
+  const deliveryTypeLabel = draft.deliveryType === 'pickup' ? 'استلام من المطبخ' : 'توصيل';
   return [
-    'ط±ط§ط¬ط¹ ط·ظ„ط¨ظƒ ط§ظ„ظ†ظ‡ط§ط¦ظٹ ًںŒ؟',
+    'راجع طلبك النهائي 🌿',
     '',
-    ...cart.map((item, index) => `${index + 1}. ${item.displayNameAr} أ— ${item.quantity} = ${money(item.lineTotalJod)}`),
+    ...cart.map((item, index) => `${index + 1}. ${item.displayNameAr} × ${item.quantity} = ${money(item.lineTotalJod)}`),
     '',
-    `ط§ظ„ط§ط³طھظ„ط§ظ…: ${deliveryTypeLabel}`,
-    draft.deliveryDayLabel ? `ط§ظ„ظٹظˆظ…: ${draft.deliveryDayLabel}` : null,
-    draft.deliverySlot ? `ط§ظ„ط³ط§ط¹ط©: ${draft.deliverySlot}` : null,
-    draft.sectorTitle ? `ط§ظ„ظ‚ط·ط§ط¹: ${draft.sectorTitle}` : null,
-    draft.zoneName ? `ط§ظ„ظ…ظ†ط·ظ‚ط©: ${draft.zoneName}` : null,
-    draft.address ? `ط§ظ„ط¹ظ†ظˆط§ظ†: ${draft.address}` : null,
-    `ط§ظ„ط¯ظپط¹: ط§ظ„ط¯ظپط¹ ط¹ظ†ط¯ ط§ظ„ط§ط³طھظ„ط§ظ… - ظƒط§ط´`,
-    `ط±ط³ظˆظ… ط§ظ„طھظˆطµظٹظ„: ${money(draft.deliveryFeeJod || 0)}`,
-    `ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ: ${money(summary.total)}`,
-    draft.notes ? `ظ…ظ„ط§ط­ط¸ط§طھ: ${draft.notes}` : 'ظ…ظ„ط§ط­ط¸ط§طھ: ط¨ط¯ظˆظ† ظ…ظ„ط§ط­ط¸ط§طھ',
+    `الاستلام: ${deliveryTypeLabel}`,
+    draft.deliveryDayLabel ? `اليوم: ${draft.deliveryDayLabel}` : null,
+    draft.deliverySlot ? `الساعة: ${draft.deliverySlot}` : null,
+    draft.sectorTitle ? `القطاع: ${draft.sectorTitle}` : null,
+    draft.zoneName ? `المنطقة: ${draft.zoneName}` : null,
+    draft.address ? `العنوان: ${draft.address}` : null,
+    `الدفع: الدفع عند الاستلام - كاش`,
+    `رسوم التوصيل: ${money(draft.deliveryFeeJod || 0)}`,
+    `الإجمالي: ${money(summary.total)}`,
+    draft.notes ? `ملاحظات: ${draft.notes}` : 'ملاحظات: بدون ملاحظات',
     '',
-    'ط¥ط°ط§ ظƒط§ظ†طھ ط§ظ„ط¨ظٹط§ظ†ط§طھ طµط­ظٹط­ط© ط§ط®طھط±: طھط£ظƒظٹط¯'
+    'إذا كانت البيانات صحيحة اختر: تأكيد'
   ].filter(Boolean).join('\n');
 }
 
@@ -601,29 +601,29 @@ function customerSummaryButtons(summaryText) {
     type: 'button',
     body: { text: summaryText },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_CONFIRM, title: shortButton('طھط£ظƒظٹط¯') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('طھط¹ط¯ظٹظ„') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EXIT, title: shortButton('ط®ط±ظˆط¬') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_CONFIRM, title: shortButton('تأكيد') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EDIT, title: shortButton('تعديل') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.CUSTOMER_EXIT, title: shortButton('خروج') } }
     ] }
   };
 }
 
 function buildOrderSummary(order) {
-  const lines = (order.items || []).map((item, index) => `${index + 1}. ${item.displayNameAr || item.display_name_ar} أ— ${item.quantity} = ${money(item.lineTotalJod || item.line_total_jod || item.total)}`);
+  const lines = (order.items || []).map((item, index) => `${index + 1}. ${item.displayNameAr || item.display_name_ar} × ${item.quantity} = ${money(item.lineTotalJod || item.line_total_jod || item.total)}`);
   return [
-    `ط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${order.id}`,
-    `ط§ظ„ظ‡ط§طھظپ: ${order.phone}`,
-    `ط§ظ„ط§ط³طھظ„ط§ظ…: ${order.deliveryType === 'pickup' || order.delivery_type === 'pickup' ? 'ط§ط³طھظ„ط§ظ…' : 'طھظˆطµظٹظ„'}`,
-    order.deliveryDay || order.delivery_day ? `ط§ظ„ظٹظˆظ…: ${order.deliveryDay || order.delivery_day}` : null,
-    order.deliverySlot || order.delivery_slot ? `ط§ظ„ط³ط§ط¹ط©: ${order.deliverySlot || order.delivery_slot}` : null,
-    order.deliverySector || order.delivery_sector ? `ط§ظ„ظ‚ط·ط§ط¹: ${order.deliverySector || order.delivery_sector}` : null,
-    order.deliveryZoneName || order.delivery_zone_name ? `ط§ظ„ظ…ظ†ط·ظ‚ط©: ${order.deliveryZoneName || order.delivery_zone_name}` : null,
-    order.address || order.address_text ? `ط§ظ„ط¹ظ†ظˆط§ظ†: ${order.address || order.address_text}` : null,
-    `ط§ظ„ط¯ظپط¹: ط§ظ„ط¯ظپط¹ ط¹ظ†ط¯ ط§ظ„ط§ط³طھظ„ط§ظ… - ظƒط§ط´`,
-    order.notes || order.order_notes ? `ظ…ظ„ط§ط­ط¸ط§طھ: ${order.notes || order.order_notes}` : 'ظ…ظ„ط§ط­ط¸ط§طھ: ط¨ط¯ظˆظ† ظ…ظ„ط§ط­ط¸ط§طھ',
-    '--- ط§ظ„ط£طµظ†ط§ظپ ---',
+    `رقم الطلب: ${order.id}`,
+    `الهاتف: ${order.phone}`,
+    `الاستلام: ${order.deliveryType === 'pickup' || order.delivery_type === 'pickup' ? 'استلام' : 'توصيل'}`,
+    order.deliveryDay || order.delivery_day ? `اليوم: ${order.deliveryDay || order.delivery_day}` : null,
+    order.deliverySlot || order.delivery_slot ? `الساعة: ${order.deliverySlot || order.delivery_slot}` : null,
+    order.deliverySector || order.delivery_sector ? `القطاع: ${order.deliverySector || order.delivery_sector}` : null,
+    order.deliveryZoneName || order.delivery_zone_name ? `المنطقة: ${order.deliveryZoneName || order.delivery_zone_name}` : null,
+    order.address || order.address_text ? `العنوان: ${order.address || order.address_text}` : null,
+    `الدفع: الدفع عند الاستلام - كاش`,
+    order.notes || order.order_notes ? `ملاحظات: ${order.notes || order.order_notes}` : 'ملاحظات: بدون ملاحظات',
+    '--- الأصناف ---',
     ...lines,
-    `ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ: ${money(order.totalJod || order.total_jod)}`
+    `الإجمالي: ${money(order.totalJod || order.total_jod)}`
   ].filter(Boolean).join('\n');
 }
 
@@ -631,32 +631,32 @@ function adminActionButtons(orderId, stage = 'new') {
   if (stage === 'new') {
     return {
       type: 'button',
-      body: { text: `ط§ط®طھط± ط¥ط¬ط±ط§ط، ط§ظ„ط¥ط¯ط§ط±ط© ظ„ظ„ط·ظ„ط¨ ${orderId}` },
+      body: { text: `اختر إجراء الإدارة للطلب ${orderId}` },
       action: { buttons: [
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_APPROVE}:${orderId}`, title: shortButton('ظ…ظˆط§ظپظ‚ط©') } },
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_MODIFY}:${orderId}`, title: shortButton('طھط¹ط¯ظٹظ„') } },
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_REJECT}:${orderId}`, title: shortButton('ط±ظپط¶') } }
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_APPROVE}:${orderId}`, title: shortButton('موافقة') } },
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_MODIFY}:${orderId}`, title: shortButton('تعديل') } },
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_REJECT}:${orderId}`, title: shortButton('رفض') } }
       ] }
     };
   }
   if (stage === 'approved') {
     return {
       type: 'button',
-      body: { text: `ط­ط¯ظ‘ط« ط­ط§ظ„ط© ط§ظ„ط·ظ„ط¨ ${orderId}` },
+      body: { text: `حدّث حالة الطلب ${orderId}` },
       action: { buttons: [
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_PREPARING}:${orderId}`, title: shortButton('طھط­ط¶ظٹط±') } },
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_READY}:${orderId}`, title: shortButton('ط¬ط§ظ‡ط²') } },
-        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_OUT}:${orderId}`, title: shortButton('طھظˆطµظٹظ„') } }
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_PREPARING}:${orderId}`, title: shortButton('تحضير') } },
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_READY}:${orderId}`, title: shortButton('جاهز') } },
+        { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_OUT}:${orderId}`, title: shortButton('توصيل') } }
       ] }
     };
   }
   return {
     type: 'button',
-    body: { text: `ط¥ط؛ظ„ط§ظ‚ ط­ط§ظ„ط© ط§ظ„ط·ظ„ط¨ ${orderId}` },
+    body: { text: `إغلاق حالة الطلب ${orderId}` },
     action: { buttons: [
-      { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_DELIVERED}:${orderId}`, title: shortButton('طھظ… ط§ظ„طھط³ظ„ظٹظ…') } },
-      { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_READY}:${orderId}`, title: shortButton('ط¬ط§ظ‡ط²') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('ظ…ظˆط¸ظپ') } }
+      { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_DELIVERED}:${orderId}`, title: shortButton('تم التسليم') } },
+      { type: 'reply', reply: { id: `admin:${BUTTON_IDS.ADMIN_READY}:${orderId}`, title: shortButton('جاهز') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('موظف') } }
     ] }
   };
 }
@@ -668,22 +668,18 @@ async function sendWhatsAppPayload(to, payload) {
     return { skipped: true, reason: 'بيانات WhatsApp API غير مضبوطة.' };
   }
 
-  const requestBody = JSON.stringify({
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
-    ...payload
-  });
-
   const response = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Accept': 'application/json',
-      'Accept-Charset': 'utf-8',
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`
     },
-    body: Buffer.from(requestBody, 'utf8')
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      ...payload
+    })
   });
 
   const data = await response.json().catch(() => ({}));
@@ -728,14 +724,14 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
 
 async function replyHuman(rootDir, to, config, req) {
   const { phone } = buildTextLinks(config, req);
-  return sendWhatsAppText(rootDir, to, `ظٹط³ط¹ط¯ظ†ط§ ط®ط¯ظ…طھظƒ ًںŒ؟ ظٹظ…ظƒظ†ظƒ ط§ظ„طھظˆط§طµظ„ ظ…ط¨ط§ط´ط±ط© ظ…ط¹ ط§ظ„ظ…ظˆط¸ظپ ط¹ظ„ظ‰ ط§ظ„ط±ظ‚ظ… ${phone} ط£ظˆ ظ…طھط§ط¨ط¹ط© ط§ظ„ط·ظ„ط¨ ظ…ط¹ظ†ط§ ظ‡ظ†ط§.`);
+  return sendWhatsAppText(rootDir, to, `يسعدنا خدمتك 🌿 يمكنك التواصل مباشرة مع الموظف على الرقم ${phone} أو متابعة الطلب معنا هنا.`);
 }
 
 async function notifyAdminsNewOrder(rootDir, order, config) {
   const admins = getAdminNumbers(config);
   const uniqueAdmins = [...new Set(admins)];
   if (!uniqueAdmins.length) return;
-  const body = `ط·ظ„ط¨ ط¬ط¯ظٹط¯ ظٹط­طھط§ط¬ ظ…ط±ط§ط¬ط¹ط© ًں””\n\n${buildOrderSummary(order)}`;
+  const body = `طلب جديد يحتاج مراجعة 🔔\n\n${buildOrderSummary(order)}`;
   for (const admin of uniqueAdmins) {
     await sendWhatsAppText(rootDir, admin, body);
     await sendWhatsAppInteractive(rootDir, admin, adminActionButtons(order.id, 'new'));
@@ -766,23 +762,23 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session, config) {
   const sessionData = readSessionData(session);
   const cart = sessionData.cart || [];
   const draft = sessionData.orderDraft || defaultDraft();
-  if (!cart.length) return { error: 'ظ„ط§ ظٹظ…ظƒظ† ط¥ط±ط³ط§ظ„ ط·ظ„ط¨ ظپط§ط±ط؛. ط£ط¶ظپ طµظ†ظپظ‹ط§ ظˆط§ط­ط¯ظ‹ط§ ط¹ظ„ظ‰ ط§ظ„ط£ظ‚ظ„.' };
-  if (!draft.deliveryDayLabel || !draft.deliverySlot) return { error: 'ظ†ط­طھط§ط¬ ظٹظˆظ… ط§ظ„طھط³ظ„ظٹظ… ظˆط§ظ„ط³ط§ط¹ط© ظ‚ط¨ظ„ ط§ظ„ط¥ط±ط³ط§ظ„.' };
-  if (draft.deliveryType === 'delivery' && (!draft.zoneId || !draft.address)) return { error: 'ظ†ط­طھط§ط¬ ط§ظ„ظ…ظ†ط·ظ‚ط© ظˆط§ظ„ط¹ظ†ظˆط§ظ† ظ‚ط¨ظ„ ط§ظ„ط¥ط±ط³ط§ظ„.' };
+  if (!cart.length) return { error: 'لا يمكن إرسال طلب فارغ. أضف صنفًا واحدًا على الأقل.' };
+  if (!draft.deliveryDayLabel || !draft.deliverySlot) return { error: 'نحتاج يوم التسليم والساعة قبل الإرسال.' };
+  if (draft.deliveryType === 'delivery' && (!draft.zoneId || !draft.address)) return { error: 'نحتاج المنطقة والعنوان قبل الإرسال.' };
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const deliveryFee = draft.deliveryType === 'pickup' ? 0 : Number(draft.deliveryFeeJod || 0);
   const total = subtotal + deliveryFee;
   const customerProfile = await getCustomerProfileSummary(rootDir, phone);
-  const customerTags = customerProfile.isReturning ? ['ط¹ظ…ظٹظ„ ظ…طھظƒط±ط±'] : ['ط¹ظ…ظٹظ„ ط¬ط¯ظٹط¯'];
+  const customerTags = customerProfile.isReturning ? ['عميل متكرر'] : ['عميل جديد'];
 
   const baseOrder = {
     id: draft.revisionOrderId || await generateNextOrderCode(rootDir),
-    customerName: customerProfile.customer?.full_name || 'ط¹ظ…ظٹظ„ ظ…ط·ط¨ط® ط§ظ„ظٹظˆظ…',
+    customerName: customerProfile.customer?.full_name || 'عميل مطبخ اليوم',
     phone,
     items: cart,
     notes: draft.notes || null,
-    address: draft.deliveryType === 'pickup' ? 'ط§ط³طھظ„ط§ظ… ظ…ظ† ط§ظ„ظ…ط·ط¨ط®' : draft.address,
+    address: draft.deliveryType === 'pickup' ? 'استلام من المطبخ' : draft.address,
     deliveryType: draft.deliveryType,
     deliveryDay: draft.deliveryDayLabel,
     deliverySlot: draft.deliverySlot,
@@ -792,7 +788,7 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session, config) {
     paymentMethod: draft.paymentMethod || 'cash',
     paymentStatus: 'pending',
     status: 'awaiting_admin_review',
-    statusLabelAr: 'ط¨ط§ظ†طھط¸ط§ط± ط§ط¹طھظ…ط§ط¯ ط§ظ„ط¥ط¯ط§ط±ط©',
+    statusLabelAr: 'بانتظار اعتماد الإدارة',
     subtotalJod: subtotal,
     deliveryFeeJod: deliveryFee,
     totalJod: total,
@@ -833,10 +829,10 @@ function normalizeSelectionText(text = '') {
 }
 
 function textIntent(text = '') {
-  if (/ظ…ط±ط­ط¨ط§|ط£ظ‡ظ„ط§|ط§ظ‡ظ„ط§|ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ…|hello|hi/i.test(text)) return 'welcome';
-  if (/ظ…ظˆط¸ظپ|ط§طھطµط§ظ„|طھظˆط§طµظ„|human|agent/i.test(text)) return BUTTON_IDS.HUMAN;
-  if (/طھطھط¨ط¹|track|status|ط­ط§ظ„ط©|ط·ظ„ط¨ظٹ|ط¬ط§ظ‡ط²|ظˆظٹظ†/i.test(text)) return BUTTON_IDS.TRACK_ORDER;
-  if (/ظ…ظ†ظٹظˆ|menu|ط§ط·ظ„ط¨|ط·ظ„ط¨/i.test(text)) return BUTTON_IDS.START_ORDER;
+  if (/مرحبا|أهلا|اهلا|السلام عليكم|hello|hi/i.test(text)) return 'welcome';
+  if (/موظف|اتصال|تواصل|human|agent/i.test(text)) return BUTTON_IDS.HUMAN;
+  if (/تتبع|track|status|حالة|طلبي|جاهز|وين/i.test(text)) return BUTTON_IDS.TRACK_ORDER;
+  if (/منيو|menu|اطلب|طلب/i.test(text)) return BUTTON_IDS.START_ORDER;
   return '';
 }
 
@@ -867,8 +863,8 @@ async function handleAdminAction(rootDir, from, to, selection, text, config) {
     if (/^\/pending/i.test(text)) {
       const pending = await getOrdersByStatus(rootDir, 'awaiting_admin_review', 10);
       const body = pending.length
-        ? pending.map(order => `â€¢ ${order.id} â€” ${order.customer_name || order.phone} â€” ${money(order.total_jod || order.totalJod)}`).join('\n')
-        : 'ظ„ط§ طھظˆط¬ط¯ ط·ظ„ط¨ط§طھ ط¨ط§ظ†طھط¸ط§ط± ط§ط¹طھظ…ط§ط¯ ط§ظ„ط¥ط¯ط§ط±ط© ط­ط§ظ„ظٹظ‹ط§.';
+        ? pending.map(order => `• ${order.id} — ${order.customer_name || order.phone} — ${money(order.total_jod || order.totalJod)}`).join('\n')
+        : 'لا توجد طلبات بانتظار اعتماد الإدارة حاليًا.';
       await sendWhatsAppText(rootDir, to, body);
       return { handled: true };
     }
@@ -876,11 +872,11 @@ async function handleAdminAction(rootDir, from, to, selection, text, config) {
       const orderIdText = String(text).trim().split(/\s+/)[1];
       const order = await getOrderById(rootDir, orderIdText);
       const items = order ? await getOrderItems(rootDir, orderIdText) : [];
-      await sendWhatsAppText(rootDir, to, order ? buildOrderSummary({ ...order, items: items.map(item => ({ ...item, displayNameAr: item.display_name_ar, lineTotalJod: item.line_total_jod })) }) : 'ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ظ‡ط°ط§ ط§ظ„ط·ظ„ط¨.');
+      await sendWhatsAppText(rootDir, to, order ? buildOrderSummary({ ...order, items: items.map(item => ({ ...item, displayNameAr: item.display_name_ar, lineTotalJod: item.line_total_jod })) }) : 'لم يتم العثور على هذا الطلب.');
       return { handled: true };
     }
     if (/^\/help/i.test(text)) {
-      await sendWhatsAppText(rootDir, to, 'ط£ظˆط§ظ…ط± ط§ظ„ط¥ط¯ط§ط±ط© ط§ظ„ظ…طھط§ط­ط©:\n/pending\n/view ORDER_ID\n/approve ORDER_ID\n/modify ORDER_ID\n/reject ORDER_ID\n/prep ORDER_ID\n/ready ORDER_ID\n/out ORDER_ID\n/delivered ORDER_ID');
+      await sendWhatsAppText(rootDir, to, 'أوامر الإدارة المتاحة:\n/pending\n/view ORDER_ID\n/approve ORDER_ID\n/modify ORDER_ID\n/reject ORDER_ID\n/prep ORDER_ID\n/ready ORDER_ID\n/out ORDER_ID\n/delivered ORDER_ID');
       return { handled: true };
     }
     return { handled: false };
@@ -888,19 +884,19 @@ async function handleAdminAction(rootDir, from, to, selection, text, config) {
 
   const order = await getOrderById(rootDir, orderId);
   if (!order) {
-    await sendWhatsAppText(rootDir, to, 'ظ„ظ… ظ†طھظ…ظƒظ† ظ…ظ† ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط±ظ‚ظ… ط§ظ„ط·ظ„ط¨ ط§ظ„ظ…ط·ظ„ظˆط¨.');
+    await sendWhatsAppText(rootDir, to, 'لم نتمكن من العثور على رقم الطلب المطلوب.');
     return { handled: true };
   }
   const orderItems = await getOrderItems(rootDir, orderId);
 
   const map = {
-    [BUTTON_IDS.ADMIN_APPROVE]: { status: 'approved', label: 'طھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨' },
-    [BUTTON_IDS.ADMIN_MODIFY]: { status: 'awaiting_customer_edit', label: 'ط¨ط§ظ†طھط¸ط§ط± طھط¹ط¯ظٹظ„ ط§ظ„ط¹ظ…ظٹظ„' },
-    [BUTTON_IDS.ADMIN_REJECT]: { status: 'rejected', label: 'ظ„ظ… ظٹطھظ… ط§ط¹طھظ…ط§ط¯ ط§ظ„ط·ظ„ط¨' },
-    [BUTTON_IDS.ADMIN_PREPARING]: { status: 'preparing', label: 'ظ‚ظٹط¯ ط§ظ„طھط­ط¶ظٹط±' },
-    [BUTTON_IDS.ADMIN_READY]: { status: 'ready', label: 'ط¬ط§ظ‡ط²' },
-    [BUTTON_IDS.ADMIN_OUT]: { status: 'out_for_delivery', label: 'ظ‚ظٹط¯ ط§ظ„طھظˆطµظٹظ„' },
-    [BUTTON_IDS.ADMIN_DELIVERED]: { status: 'delivered', label: 'طھظ… ط§ظ„طھط³ظ„ظٹظ…' }
+    [BUTTON_IDS.ADMIN_APPROVE]: { status: 'approved', label: 'تم اعتماد الطلب' },
+    [BUTTON_IDS.ADMIN_MODIFY]: { status: 'awaiting_customer_edit', label: 'بانتظار تعديل العميل' },
+    [BUTTON_IDS.ADMIN_REJECT]: { status: 'rejected', label: 'لم يتم اعتماد الطلب' },
+    [BUTTON_IDS.ADMIN_PREPARING]: { status: 'preparing', label: 'قيد التحضير' },
+    [BUTTON_IDS.ADMIN_READY]: { status: 'ready', label: 'جاهز' },
+    [BUTTON_IDS.ADMIN_OUT]: { status: 'out_for_delivery', label: 'قيد التوصيل' },
+    [BUTTON_IDS.ADMIN_DELIVERED]: { status: 'delivered', label: 'تم التسليم' }
   };
   const target = map[action];
   if (!target) return { handled: false };
@@ -953,7 +949,7 @@ async function handleAdminAction(rootDir, from, to, selection, text, config) {
       paymentMethod: order.payment_method,
       notes: order.order_notes
     })));
-    await sendWhatsAppText(rootDir, to, `طھظ… طھط­ظˆظٹظ„ ط§ظ„ط·ظ„ط¨ ${order.id} ط¥ظ„ظ‰ ظ…ط³ط§ط± ط§ظ„طھط¹ط¯ظٹظ„ ظ…ظ† ط§ظ„ط¹ظ…ظٹظ„.`);
+    await sendWhatsAppText(rootDir, to, `تم تحويل الطلب ${order.id} إلى مسار التعديل من العميل.`);
     return { handled: true };
   }
 
@@ -972,7 +968,7 @@ async function handleAdminAction(rootDir, from, to, selection, text, config) {
     });
   }
   await sendOrderStatusToCustomer(rootDir, { ...order, ...updated, phone: order.phone });
-  await sendWhatsAppText(rootDir, to, `طھظ… طھط­ط¯ظٹط« ط§ظ„ط·ظ„ط¨ ${order.id} ط¥ظ„ظ‰ ط­ط§ظ„ط©: ${target.label}`);
+  await sendWhatsAppText(rootDir, to, `تم تحديث الطلب ${order.id} إلى حالة: ${target.label}`);
   if (target.status === 'approved') {
     await notifyAdminsStatusStage(rootDir, order, config, 'approved');
   }
@@ -993,14 +989,14 @@ function orderFlowLocked(session) {
 }
 
 async function sendOpenOrderLockMessage(rootDir, to, order) {
-  const body = `ظ„ط¯ظٹظƒ ط·ظ„ط¨ ظ‚ط§ط¦ظ… ط¨ط§ظ„ظپط¹ظ„ ًںŒ؟\nط±ظ‚ظ… ط§ظ„ط·ظ„ط¨: ${order.id}\nط­ط§ظ„طھظ‡ ط§ظ„ط­ط§ظ„ظٹط©: ${labelFromStatus(order.status)}\nط£ظƒظ…ظ„ ظ…طھط§ط¨ط¹ط© ظ‡ط°ط§ ط§ظ„ط·ظ„ط¨ ط£ظˆظ„ظ‹ط§طŒ ظˆط¥ط°ط§ ط±ط؛ط¨طھ ط³ظ†ط¹ط±ط¶ ط­ط§ظ„طھظ‡ ط§ظ„ط¢ظ†.`;
+  const body = `لديك طلب قائم بالفعل 🌿\nرقم الطلب: ${order.id}\nحالته الحالية: ${labelFromStatus(order.status)}\nأكمل متابعة هذا الطلب أولًا، وإذا رغبت سنعرض حالته الآن.`;
   return sendWhatsAppInteractive(rootDir, to, {
     type: 'button',
     body: { text: body },
     action: { buttons: [
-      { type: 'reply', reply: { id: BUTTON_IDS.TRACK_ORDER, title: shortButton('طھطھط¨ط¹') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('ظ…ظˆط¸ظپ') } },
-      { type: 'reply', reply: { id: BUTTON_IDS.EXIT, title: shortButton('ط®ط±ظˆط¬') } }
+      { type: 'reply', reply: { id: BUTTON_IDS.TRACK_ORDER, title: shortButton('تتبع') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: shortButton('موظف') } },
+      { type: 'reply', reply: { id: BUTTON_IDS.EXIT, title: shortButton('خروج') } }
     ] }
   });
 }
@@ -1027,7 +1023,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     }
 
     const from = normalizePhone(message.from || '');
-    const to = normalizePhone(message.from || '').replace(/^\+/, '');
+    const to = normalizePhone(value.metadata?.display_phone_number || '').replace(/^\+/, '');
     const type = message.type || 'text';
     const text = normalizeSelectionText(message.text?.body || '');
     const selection = readIncomingSelection(message, rootDir);
@@ -1070,7 +1066,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     return json(res, 200, { ok: true, delivered: result, mode: 'track_open_order' });
   }
 
-  if (selection === BUTTON_IDS.AR || /^ط§ظ„ط¹ط±ط¨ظٹط©$/i.test(text)) {
+  if (selection === BUTTON_IDS.AR || /^العربية$/i.test(text)) {
     session = await persistSession(rootDir, from, session, { preferredLanguage: 'ar', currentState: 'awaiting_consent' });
     await upsertCustomer(rootDir, { phone: from, preferredLanguage: 'ar', consentStatus: session.consent_status || 'pending' });
     const result = await sendWhatsAppInteractive(rootDir, to, consentButtons('ar'));
@@ -1103,7 +1099,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
       return json(res, 200, { ok: true, delivered: result, mode: 'track_latest' });
     }
     const orders = await findOrdersByPhone(rootDir, from);
-    const result = await sendWhatsAppText(rootDir, to, orders.length ? orders.slice(0, 5).map(order => `â€¢ ${order.id} â€” ${labelFromStatus(order.status)}`).join('\n') : 'ظ„ط§ ظٹظˆط¬ط¯ ط·ظ„ط¨ط§طھ ط³ط§ط¨ظ‚ط© ظ…ط±طھط¨ط·ط© ط¨ظ‡ط°ط§ ط§ظ„ط±ظ‚ظ… ط­ط§ظ„ظٹظ‹ط§.');
+    const result = await sendWhatsAppText(rootDir, to, orders.length ? orders.slice(0, 5).map(order => `• ${order.id} — ${labelFromStatus(order.status)}`).join('\n') : 'لا يوجد طلبات سابقة مرتبطة بهذا الرقم حاليًا.');
     return json(res, 200, { ok: true, delivered: result, mode: 'track_history' });
   }
 
@@ -1145,7 +1141,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const value = selection.split(':')[1];
     const draft = { ...sessionData.orderDraft, meatType: value };
     const items = getFilteredItems(rootDir, draft);
-    const statusList = buildStatusList(items, 'ط§ط®طھط± ظ†ظˆط¹ ط§ظ„طھط¬ظ‡ظٹط² ط§ظ„ظ…ظ†ط§ط³ط¨ ظ„ظ‡ط°ط§ ط§ظ„ظ‚ط³ظ… ًںŒ؟');
+    const statusList = buildStatusList(items, 'اختر نوع التجهيز المناسب لهذا القسم 🌿');
     session = await persistSession(rootDir, from, session, { currentState: statusList ? 'awaiting_status' : 'awaiting_item', sessionData: { orderDraft: draft, itemPage: 0 } });
     const result = await sendWhatsAppInteractive(rootDir, to, statusList || itemList(rootDir, draft, 0));
     return json(res, 200, { ok: true, delivered: result, mode: 'type_selected' });
@@ -1156,9 +1152,9 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const draft = { ...sessionData.orderDraft, categoryFilter: value };
     if (draft.rootId === 'catering') {
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_type', sessionData: { orderDraft: draft } });
-      const result = await sendWhatsAppInteractive(rootDir, to, simpleChoiceList('ط§ط®طھط± ظ†ظˆط¹ ط§ظ„ط°ط¨ظٹط­ط© ًںŒ؟', 'ط§ظ„ظ†ظˆط¹', 'ظ†ظˆط¹ ط§ظ„ط°ط¨ظٹط­ط©', [
-        { id: 'type:ط¨ظ„ط¯ظٹ', title: 'ط¨ظ„ط¯ظٹ', description: value },
-        { id: 'type:ظ…ط³طھظˆط±ط¯', title: 'ظ…ط³طھظˆط±ط¯', description: value }
+      const result = await sendWhatsAppInteractive(rootDir, to, simpleChoiceList('اختر نوع الذبيحة 🌿', 'النوع', 'نوع الذبيحة', [
+        { id: 'type:بلدي', title: 'بلدي', description: value },
+        { id: 'type:مستورد', title: 'مستورد', description: value }
       ]));
       return json(res, 200, { ok: true, delivered: result, mode: 'catering_type' });
     }
@@ -1183,7 +1179,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const itemId = selection.split(':')[1];
     const item = getMenuItemById(rootDir, itemId);
     if (!item) {
-      const result = await sendWhatsAppText(rootDir, to, 'طھط¹ط°ط± ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ظ‡ط°ط§ ط§ظ„طµظ†ظپ. ط§ط®طھط± ظ…ظ† ط§ظ„ظ‚ط§ط¦ظ…ط© ظ…ط±ط© ط£ط®ط±ظ‰.');
+      const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على هذا الصنف. اختر من القائمة مرة أخرى.');
       return json(res, 200, { ok: true, delivered: result, mode: 'item_missing' });
     }
     session = await persistSession(rootDir, from, session, { currentState: 'awaiting_quantity', sessionData: { pendingItemId: itemId, awaiting: 'quantity' } });
@@ -1193,7 +1189,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   if (selection === 'qty:text') {
     session = await persistSession(rootDir, from, session, { currentState: 'awaiting_quantity_text', sessionData: { awaiting: 'quantity_text' } });
-    const result = await sendWhatsAppText(rootDir, to, 'ط£ط±ط³ظ„ ط±ظ‚ظ… ط§ظ„ظƒظ…ظٹط© ط§ظ„طھظٹ طھط±ظٹط¯ظ‡ط§ ط§ظ„ط¢ظ†طŒ ظ…ط«ظ„ 2 ط£ظˆ 5.');
+    const result = await sendWhatsAppText(rootDir, to, 'أرسل رقم الكمية التي تريدها الآن، مثل 2 أو 5.');
     return json(res, 200, { ok: true, delivered: result, mode: 'quantity_text_prompt' });
   }
 
@@ -1201,7 +1197,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const quantity = Number(selection.split(':')[1] || 1);
     const item = getMenuItemById(rootDir, sessionData.pendingItemId);
     if (!item) {
-      const result = await sendWhatsAppText(rootDir, to, 'طھط¹ط°ط± طھط­ط¯ظٹط¯ ط§ظ„طµظ†ظپ ط§ظ„ط­ط§ظ„ظٹ. ط³ظ†ط¹ظٹط¯ظƒ ط¥ظ„ظ‰ ط§ظ„ظ…ظ†ظٹظˆ.');
+      const result = await sendWhatsAppText(rootDir, to, 'تعذر تحديد الصنف الحالي. سنعيدك إلى المنيو.');
       await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: { cart: sessionData.cart, pendingItemId: null, awaiting: null } });
       await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
       return json(res, 200, { ok: true, delivered: result, mode: 'item_lost' });
@@ -1239,7 +1235,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
           price_1_jod: Number(extraItem.price_1_jod || 0),
           quantity: 1,
           lineTotalJod: Number(extraItem.price_1_jod || 0),
-          notes: 'ط¥ط¶ط§ظپط©'
+          notes: 'إضافة'
         });
       }
     }
@@ -1256,10 +1252,10 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   if (selection === BUTTON_IDS.CLEAR_CART || selection === BUTTON_IDS.EXIT || selection === BUTTON_IDS.CUSTOMER_EXIT) {
     if (openOrder && !TERMINAL_STATUSES.includes(openOrder.status) && session.current_state === 'awaiting_admin_review') {
-      await updateOrderStatus(rootDir, openOrder.id, 'customer_exit', 'ط£ط؛ظ„ظ‚ظ‡ ط§ظ„ط¹ظ…ظٹظ„');
-      await sendWhatsAppText(rootDir, to, `طھظ… ط¥ط؛ظ„ط§ظ‚ ط·ظ„ط¨ظƒ ط§ظ„ط­ط§ظ„ظٹ ${openOrder.id}. ط¥ط°ط§ ط±ط؛ط¨طھ ظ†ط¨ط¯ط£ ظ…ظ† ط¬ط¯ظٹط¯ ظپظٹ ط£ظٹ ظˆظ‚طھ.`);
+      await updateOrderStatus(rootDir, openOrder.id, 'customer_exit', 'أغلقه العميل');
+      await sendWhatsAppText(rootDir, to, `تم إغلاق طلبك الحالي ${openOrder.id}. إذا رغبت نبدأ من جديد في أي وقت.`);
     } else {
-      await sendWhatsAppText(rootDir, to, 'طھظ… ط¥ط؛ظ„ط§ظ‚ ط§ظ„ط·ظ„ط¨ ط§ظ„ط­ط§ظ„ظٹ. ط¹ظ†ط¯ظ…ط§ طھظƒظˆظ† ط¬ط§ظ‡ط²ظ‹ط§ ظ†ط¨ط¯ط£ ظ…ظ† ط¬ط¯ظٹط¯ ط¨ظƒظ„ ط³ط±ظˆط± ًںŒ؟');
+      await sendWhatsAppText(rootDir, to, 'تم إغلاق الطلب الحالي. عندما تكون جاهزًا نبدأ من جديد بكل سرور 🌿');
     }
     session = await persistSession(rootDir, from, session, { currentState: 'main_menu', lastOrderId: null, sessionData: { cart: [], awaiting: null, pendingItemId: null, itemPage: 0, orderDraft: defaultDraft(), lastOrderId: null } });
     await sendWhatsAppInteractive(rootDir, to, mainMenuButtons());
@@ -1268,7 +1264,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   if (selection === BUTTON_IDS.CHECKOUT) {
     if (!(sessionData.cart || []).length) {
-      const result = await sendWhatsAppText(rootDir, to, 'ط§ظ„ط³ظ„ط© ظپط§ط±ط؛ط© ط­ط§ظ„ظٹظ‹ط§. ط£ط¶ظپ طµظ†ظپظ‹ط§ ط£ظˆظ„ظ‹ط§.');
+      const result = await sendWhatsAppText(rootDir, to, 'السلة فارغة حاليًا. أضف صنفًا أولًا.');
       return json(res, 200, { ok: true, delivered: result, mode: 'cart_empty' });
     }
     session = await persistSession(rootDir, from, session, { currentState: 'awaiting_day', sessionData: { dayOptions: buildDayOptions(config), lastPrompt: 'day' } });
@@ -1280,7 +1276,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const offset = Number(selection.split(':')[1] || 0);
     const choice = buildDayOptions(config)[offset];
     if (!choice) {
-      const result = await sendWhatsAppText(rootDir, to, 'طھط¹ط°ط± طھط­ط¯ظٹط¯ ط§ظ„ظٹظˆظ…. ط£ط¹ط¯ ط§ظ„ظ…ط­ط§ظˆظ„ط©.');
+      const result = await sendWhatsAppText(rootDir, to, 'تعذر تحديد اليوم. أعد المحاولة.');
       return json(res, 200, { ok: true, delivered: result, mode: 'day_error' });
     }
     session = await persistSession(rootDir, from, session, {
@@ -1317,7 +1313,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const page = Number(pageRaw || 0);
     const group = getDeliveryGroupByKey(rootDir, sectorKey);
     if (!group) {
-      const result = await sendWhatsAppText(rootDir, to, 'طھط¹ط°ط± ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ظ‡ط°ط§ ط§ظ„ظ‚ط·ط§ط¹. ط§ط®طھط± ظ…ظ† ط¬ط¯ظٹط¯.');
+      const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على هذا القطاع. اختر من جديد.');
       return json(res, 200, { ok: true, delivered: result, mode: 'sector_error' });
     }
     session = await persistSession(rootDir, from, session, {
@@ -1332,7 +1328,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const zoneId = selection.split(':')[1];
     const zone = getDeliveryZoneById(rootDir, zoneId);
     if (!zone) {
-      const result = await sendWhatsAppText(rootDir, to, 'طھط¹ط°ط± طھط­ط¯ظٹط¯ ط§ظ„ظ…ظ†ط·ظ‚ط© ط§ظ„ظ…ط·ظ„ظˆط¨ط©. ط£ط¹ط¯ ط§ظ„ط§ط®طھظٹط§ط±.');
+      const result = await sendWhatsAppText(rootDir, to, 'تعذر تحديد المنطقة المطلوبة. أعد الاختيار.');
       return json(res, 200, { ok: true, delivered: result, mode: 'zone_error' });
     }
     session = await persistSession(rootDir, from, session, {
@@ -1341,14 +1337,14 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
         orderDraft: {
           zoneId: zone.zone_id,
           zoneName: zone.zone_name_ar,
-          sectorTitle: `${zone.zone_type} â€” ${zone.sector_or_governorate}`,
+          sectorTitle: `${zone.zone_type} — ${zone.sector_or_governorate}`,
           deliveryFeeJod: Number(zone.delivery_fee_jod || 0)
         },
         awaiting: 'address',
         lastPrompt: 'address'
       }
     });
-    const result = await sendWhatsAppText(rootDir, to, `طھظ… ط§ط®طھظٹط§ط± ظ…ظ†ط·ظ‚ط© ${zone.zone_name_ar} ظˆط±ط³ظˆظ… ط§ظ„طھظˆطµظٹظ„ ${money(zone.delivery_fee_jod)} ًںŒ؟\nط£ط±ط³ظ„ ط§ظ„ط¹ظ†ظˆط§ظ† ط¨ط§ظ„طھظپطµظٹظ„ ط£ظˆ ط´ط§ط±ظƒ ط§ظ„ظ…ظˆظ‚ط¹ ط§ظ„ط¢ظ†.`);
+    const result = await sendWhatsAppText(rootDir, to, `تم اختيار منطقة ${zone.zone_name_ar} ورسوم التوصيل ${money(zone.delivery_fee_jod)} 🌿\nأرسل العنوان بالتفصيل أو شارك الموقع الآن.`);
     return json(res, 200, { ok: true, delivered: result, mode: 'address_prompt' });
   }
 
@@ -1363,7 +1359,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   if (selection === BUTTON_IDS.NOTES_ADD) {
     session = await persistSession(rootDir, from, session, { currentState: 'awaiting_notes_text', sessionData: { awaiting: 'notes_text' } });
-    const result = await sendWhatsAppText(rootDir, to, 'ط§ظƒطھط¨ ط§ظ„ظ…ظ„ط§ط­ط¸ط© ط§ظ„طھظٹ طھط±ظٹط¯ ط¥ط¶ط§ظپطھظ‡ط§ ط¹ظ„ظ‰ ط§ظ„ط·ظ„ط¨ ط§ظ„ط¢ظ†.');
+    const result = await sendWhatsAppText(rootDir, to, 'اكتب الملاحظة التي تريد إضافتها على الطلب الآن.');
     return json(res, 200, { ok: true, delivered: result, mode: 'notes_text_prompt' });
   }
 
@@ -1410,7 +1406,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
       return json(res, 200, { ok: true, delivered: result, mode: 'create_order_error' });
     }
     await notifyAdminsNewOrder(rootDir, outcome.order, config);
-    const result = await sendWhatsAppText(rootDir, to, `طھظ… ط§ط³طھظ„ط§ظ… ط·ظ„ط¨ظƒ ظˆط¥ط±ط³ط§ظ„ظ‡ ظ„ظ„ط¥ط¯ط§ط±ط© ظ„ظ„ظ…ط±ط§ط¬ط¹ط© âœ…\nط±ظ‚ظ… ط§ظ„ظ…طھط§ط¨ط¹ط© ط§ظ„ط¯ط§ط®ظ„ظٹ: ${outcome.order.id}\nط³ظ†ط«ط¨طھ ط§ظ„ط·ظ„ط¨ ط¨ط¹ط¯ ط§ط¹طھظ…ط§ط¯ ط§ظ„ط¥ط¯ط§ط±ط© ظˆظ†ط±ط³ظ„ ظ„ظƒ ط§ظ„ط­ط§ظ„ط© ظ…ط¨ط§ط´ط±ط© ظ‡ظ†ط§.`);
+    const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم المتابعة الداخلي: ${outcome.order.id}\nسنثبت الطلب بعد اعتماد الإدارة ونرسل لك الحالة مباشرة هنا.`);
     return json(res, 200, { ok: true, delivered: result, mode: 'sent_to_admin' });
   }
 
@@ -1425,7 +1421,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     const quantity = Number(text);
     const item = getMenuItemById(rootDir, sessionData.pendingItemId);
     if (!quantity || quantity < 1 || !item) {
-      const result = await sendWhatsAppText(rootDir, to, 'ط£ط±ط³ظ„ ط±ظ‚ظ… ظƒظ…ظٹط© طµط­ظٹط­ظ‹ط§ ظ…ط«ظ„ 2 ط£ظˆ 5.');
+      const result = await sendWhatsAppText(rootDir, to, 'أرسل رقم كمية صحيحًا مثل 2 أو 5.');
       return json(res, 200, { ok: true, delivered: result, mode: 'quantity_invalid' });
     }
     const newItem = {
@@ -1475,7 +1471,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
       if (to) {
         await sendWhatsAppPayload(to, {
           type: 'text',
-          text: { body: 'ظˆطµظ„طھظ†ط§ ط±ط³ط§ظ„طھظƒ ًںŒ؟ ط­ط¯ط« طھط£ط®ظٹط± ط¨ط³ظٹط· ظپظٹ ط§ظ„ظ…ط¹ط§ظ„ط¬ط© ظˆط³ظ†ط¹ظˆط¯ ظ„ظƒ ط­ط§ظ„ظ‹ط§.' }
+          text: { body: 'وصلتنا رسالتك 🌿 حدث تأخير بسيط في المعالجة وسنعود لك حالًا.' }
         });
       }
     } catch (fallbackError) {
@@ -1484,7 +1480,5 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     return json(res, 200, { ok: false, recovered: true, message: error.message });
   }
 }
-
-
 
 
