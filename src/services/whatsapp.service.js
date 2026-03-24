@@ -105,6 +105,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function logWebhook(event, payload = {}) {
+  console.info(event, JSON.stringify(payload));
+}
+
 function money(value) {
   return `${Number(value || 0).toFixed(3)} د.أ`;
 }
@@ -684,27 +688,37 @@ async function sendWhatsAppPayload(to, payload) {
 
 async function sendWhatsAppText(rootDir, to, body) {
   const result = await sendWhatsAppPayload(to, { type: 'text', text: { body } });
-  await saveOutgoingMessage(rootDir, {
-    id: crypto.randomUUID(),
-    to,
-    type: 'text',
-    text: body,
-    payload: result.data,
-    createdAt: nowIso()
-  });
+  try {
+    await saveOutgoingMessage(rootDir, {
+      id: crypto.randomUUID(),
+      to,
+      type: 'text',
+      text: body,
+      payload: result.data,
+      createdAt: nowIso()
+    });
+  } catch (error) {
+    console.error('SAVE_OUTGOING_TEXT_ERROR', error);
+  }
+  logWebhook('OUTGOING_TEXT', { to, status: result.status, body });
   return result;
 }
 
 async function sendWhatsAppInteractive(rootDir, to, interactive) {
   const result = await sendWhatsAppPayload(to, { type: 'interactive', interactive });
-  await saveOutgoingMessage(rootDir, {
-    id: crypto.randomUUID(),
-    to,
-    type: `interactive_${interactive.type}`,
-    text: interactive.body?.text || '',
-    payload: result.data,
-    createdAt: nowIso()
-  });
+  try {
+    await saveOutgoingMessage(rootDir, {
+      id: crypto.randomUUID(),
+      to,
+      type: `interactive_${interactive.type}`,
+      text: interactive.body?.text || '',
+      payload: result.data,
+      createdAt: nowIso()
+    });
+  } catch (error) {
+    console.error('SAVE_OUTGOING_INTERACTIVE_ERROR', error);
+  }
+  logWebhook('OUTGOING_INTERACTIVE', { to, status: result.status, type: interactive.type, body: interactive.body?.text || '' });
   return result;
 }
 
@@ -988,30 +1002,46 @@ async function sendOpenOrderLockMessage(rootDir, to, order) {
 }
 
 export async function processWhatsAppWebhook(req, res, config, rootDir) {
-  const body = await parseBody(req);
-  const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
-  const message = value.messages?.[0];
+  try {
+    const body = await parseBody(req);
+    const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
+    const message = value.messages?.[0];
+    const statuses = value.statuses?.[0] || null;
 
-  if (!message) {
-    return json(res, 200, { ok: true, skipped: true });
-  }
+    logWebhook('WEBHOOK_IN', {
+      hasMessage: Boolean(message),
+      hasStatuses: Boolean(statuses),
+      from: message?.from || null,
+      type: message?.type || null,
+      messageId: message?.id || null,
+      statusId: statuses?.id || null,
+      statusType: statuses?.status || null
+    });
 
-  const from = normalizePhone(message.from || '');
-  const to = normalizePhone(value.metadata?.display_phone_number || '').replace(/^\+/, '');
-  const type = message.type || 'text';
-  const text = normalizeSelectionText(message.text?.body || '');
-  const selection = readIncomingSelection(message, rootDir);
-  const admin = isAdminPhone(from, config);
+    if (!message) {
+      return json(res, 200, { ok: true, skipped: true, reason: statuses ? 'status_update' : 'no_message' });
+    }
 
-  await saveIncomingMessage(rootDir, {
-    id: message.id || crypto.randomUUID(),
-    from,
-    type,
-    text,
-    audioId: message.audio?.id,
-    payload: body,
-    receivedAt: nowIso()
-  });
+    const from = normalizePhone(message.from || '');
+    const to = normalizePhone(value.metadata?.display_phone_number || '').replace(/^\+/, '');
+    const type = message.type || 'text';
+    const text = normalizeSelectionText(message.text?.body || '');
+    const selection = readIncomingSelection(message, rootDir);
+    const admin = isAdminPhone(from, config);
+
+    try {
+      await saveIncomingMessage(rootDir, {
+        id: message.id || crypto.randomUUID(),
+        from,
+        type,
+        text,
+        audioId: message.audio?.id,
+        payload: body,
+        receivedAt: nowIso()
+      });
+    } catch (error) {
+      console.error('SAVE_INCOMING_MESSAGE_ERROR', error);
+    }
 
   if (admin) {
     const adminResult = await handleAdminAction(rootDir, from, to, selection, text, config);
@@ -1430,4 +1460,25 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons());
   return json(res, 200, { ok: true, delivered: result, mode: 'fallback_main' });
+
+  } catch (error) {
+    console.error('WEBHOOK_FATAL_ERROR', error);
+    try {
+      const body = await parseBody(req).catch(() => ({}));
+      const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
+      const message = value.messages?.[0];
+      const to = normalizePhone(message?.from || '').replace(/^\+/, '');
+      if (to) {
+        await sendWhatsAppPayload(to, {
+          type: 'text',
+          text: { body: 'وصلتنا رسالتك 🌿 حدث تأخير بسيط في المعالجة وسنعود لك حالًا.' }
+        });
+      }
+    } catch (fallbackError) {
+      console.error('WEBHOOK_FALLBACK_SEND_ERROR', fallbackError);
+    }
+    return json(res, 200, { ok: false, recovered: true, message: error.message });
+  }
 }
+
+

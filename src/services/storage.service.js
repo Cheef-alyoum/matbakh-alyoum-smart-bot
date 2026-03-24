@@ -319,11 +319,22 @@ async function saveMessage(rootDir, message, direction = 'inbound') {
   };
 
   if (isSupabaseEnabled()) {
-    return upsertRow('messages_log', row, { onConflict: 'id' });
+    try {
+      return await upsertRow('messages_log', row, { onConflict: 'id' });
+    } catch (error) {
+      console.error('MESSAGES_LOG_SUPABASE_ERROR', {
+        phone: row.phone,
+        id: row.id,
+        direction,
+        message: error.message,
+        status: error.status,
+        payload: error.payload || null
+      });
+    }
   }
 
   const messages = loadCollection(rootDir, 'messages');
-  messages.unshift({ ...message, direction });
+  messages.unshift({ ...message, direction, failed_supabase_sync: isSupabaseEnabled() });
   saveCollection(rootDir, 'messages', messages);
   return row;
 }

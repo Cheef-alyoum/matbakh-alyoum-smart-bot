@@ -23,6 +23,10 @@ const server = http.createServer(async (req, res) => {
     const pathname = url.pathname;
     const method = req.method || 'GET';
 
+    if (pathname === '/api/webhooks/whatsapp') {
+      console.info('HTTP_WEBHOOK_REQUEST', JSON.stringify({ method, pathname, time: new Date().toISOString() }));
+    }
+
     if (pathname === '/api/status') {
       return json(res, 200, {
         ok: true,
