@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { loadAppConfig, isWithinOrderWindow, normalizePhone, json, text, sendFile, readJsonFile, writeJsonFile, parseBody, parseCookies } from './src/utils/core.js';
 import { getMenuData, getMenuSummary, getMetaCatalog, searchMenu, getSections } from './src/services/menu.service.js';
 import { buildHomepageData, buildSeoConfig } from './src/services/site.service.js';
+import { getDeliveryZoneById } from './src/services/delivery.service.js';
 import { sendMetaEvent } from './src/services/meta-capi.service.js';
 import { whatsappVerify, processWhatsAppWebhook } from './src/services/whatsapp.service.js';
-import { createOrder, getOrderById, findOrdersByPhone, updateOrderStatus, createLead } from './src/services/storage.service.js';
+import { createOrder, getOrderById, findOrdersByPhone, updateOrderStatus, createLead, generateNextOrderCode } from './src/services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,19 +110,28 @@ const server = http.createServer(async (req, res) => {
       const address = body.address || '';
       const paymentMethod = body.paymentMethod || 'cash';
       const now = new Date().toISOString();
-
+      const zone = body.deliveryZoneId ? getDeliveryZoneById(rootDir, body.deliveryZoneId) : null;
+      const subtotal = items.reduce((sum, item) => sum + Number(item.lineTotalJod || item.line_total_jod || item.total || 0), 0);
+      const deliveryFee = deliveryType === 'pickup' ? 0 : Number(zone?.delivery_fee_jod || body.deliveryFeeJod || 0);
       const order = await createOrder(rootDir, {
-        id: `MY-${Date.now()}`,
+        id: await generateNextOrderCode(rootDir),
         customerName: body.customerName || 'عميل مطبخ اليوم',
         phone,
         items,
         notes,
         address,
+        deliveryDay: body.deliveryDay || '',
         deliverySlot,
         deliveryType,
+        deliverySector: zone ? `${zone.zone_type} — ${zone.sector_or_governorate}` : body.deliverySector || '',
+        deliveryZoneId: zone?.zone_id || body.deliveryZoneId || null,
+        deliveryZoneName: zone?.zone_name_ar || body.deliveryZoneName || '',
         paymentMethod,
-        status: 'under_review',
-        statusLabelAr: 'طلبك قيد المعالجة',
+        status: 'awaiting_admin_review',
+        statusLabelAr: 'بانتظار اعتماد الإدارة',
+        subtotalJod: subtotal,
+        deliveryFeeJod: deliveryFee,
+        totalJod: subtotal + deliveryFee,
         createdAt: now,
         updatedAt: now
       });

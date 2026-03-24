@@ -19,6 +19,7 @@ drop table if exists audit_log cascade;
 drop table if exists app_settings cascade;
 drop table if exists menu_items cascade;
 drop table if exists messages_log cascade;
+drop table if exists delivery_zones cascade;
 drop table if exists messages cascade;
 drop table if exists sessions cascade;
 drop table if exists menu cascade;
@@ -131,7 +132,11 @@ create table orders (
   status text not null default 'under_review',
   status_label_ar text not null default 'طلبك قيد المعالجة',
   delivery_type text not null default 'delivery',
+  delivery_day text,
   delivery_slot text,
+  delivery_sector text,
+  delivery_zone_id text,
+  delivery_zone_name text,
   payment_method text not null default 'cash',
   payment_status text not null default 'pending',
   address_text text,

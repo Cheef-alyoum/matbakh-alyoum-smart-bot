@@ -113,7 +113,11 @@ create table if not exists orders (
   status text not null default 'under_review',
   status_label_ar text not null default 'طلبك قيد المعالجة',
   delivery_type text not null default 'delivery',
+  delivery_day text,
   delivery_slot text,
+  delivery_sector text,
+  delivery_zone_id text,
+  delivery_zone_name text,
   payment_method text not null default 'cash',
   payment_status text not null default 'pending',
   address_text text,
@@ -127,6 +131,12 @@ create table if not exists orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+
+alter table if exists orders add column if not exists delivery_day text;
+alter table if exists orders add column if not exists delivery_sector text;
+alter table if exists orders add column if not exists delivery_zone_id text;
+alter table if exists orders add column if not exists delivery_zone_name text;
 
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(),

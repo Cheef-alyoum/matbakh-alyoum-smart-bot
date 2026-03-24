@@ -94,3 +94,17 @@ export async function patchRows(table, filters = {}, payload = {}) {
   const data = await handleResponse(response);
   return Array.isArray(data) ? data[0] : data;
 }
+
+
+export async function deleteRows(table, filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === '') continue;
+    params.set(key, `eq.${value}`);
+  }
+  const response = await fetch(buildUrl(table, params.toString()), {
+    method: 'DELETE',
+    headers: buildHeaders({ Prefer: 'return=representation' })
+  });
+  return handleResponse(response);
+}

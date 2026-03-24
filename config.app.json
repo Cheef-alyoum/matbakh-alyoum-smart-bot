@@ -56,7 +56,10 @@
     "publicMenu": true,
     "publicOrderTracking": true,
     "deliveryZones": true,
-    "cashOnDeliveryOnly": true
+    "cashOnDeliveryOnly": true,
+    "customerMemoryByPhone": true,
+    "adminInteractiveActions": true,
+    "openOrderLock": true
   },
   "adminPhones": [
     "962788328832",
@@ -84,5 +87,12 @@
     "followupWindow": "خلال 24 ساعة كحد أقصى",
     "paymentMethodsAllowed": "الدفع عند الاستلام - كاش",
     "defaultPaymentMethod": "الدفع عند الاستلام - كاش"
+  },
+  "security": {
+    "storeMessagesForOperations": true,
+    "shareDataOnlyWithAdmins": true,
+    "marketingRequiresConsent": true,
+    "adminApprovalRequiredForOrderFinalization": true,
+    "secretsViaEnvironmentOnly": true
   }
 }
