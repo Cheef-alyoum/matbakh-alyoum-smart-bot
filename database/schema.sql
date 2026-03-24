@@ -152,7 +152,7 @@ create table if not exists order_items (
 );
 
 create table if not exists messages_log (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   channel text not null default 'whatsapp',
   direction text not null default 'inbound',
   phone text,
