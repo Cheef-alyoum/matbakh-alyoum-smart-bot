@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import path from 'node:path';
 import { readJsonFile, writeJsonFile } from '../utils/core.js';
 import { deleteRows, insertRows, isSupabaseEnabled, patchRows, selectRows, upsertRow } from './supabase.service.js';
@@ -118,7 +118,7 @@ function normalizeOrderRow(order, customerId = null) {
     customer_name: order.customerName || order.customer_name || null,
     phone: order.phone,
     status: order.status,
-    status_label_ar: order.statusLabelAr || order.status_label_ar || 'قيد المراجعة',
+    status_label_ar: order.statusLabelAr || order.status_label_ar || 'ظ‚ظٹط¯ ط§ظ„ظ…ط±ط§ط¬ط¹ط©',
     delivery_type: order.deliveryType || order.delivery_type || 'delivery',
     delivery_day: order.deliveryDay || order.delivery_day || null,
     delivery_slot: order.deliverySlot || order.delivery_slot || null,
@@ -144,7 +144,7 @@ function normalizeOrderItems(order) {
   return (order.items || []).map(item => ({
     order_id: order.id,
     menu_item_id: item.id || item.record_id || null,
-    display_name_ar: item.display_name_ar || item.displayNameAr || item.name || 'صنف',
+    display_name_ar: item.display_name_ar || item.displayNameAr || item.name || 'طµظ†ظپ',
     quantity: Number(item.quantity || 1),
     unit_ar: item.unit_ar || item.unit || null,
     unit_price_jod: Number(item.price_1_jod || item.price || 0),
@@ -319,7 +319,7 @@ async function saveMessage(rootDir, message, direction = 'inbound') {
   };
 
   if (isSupabaseEnabled()) {
-    return insertRows('messages_log', row, { returnMinimal: true });
+    return upsertRow('messages_log', row, { onConflict: 'id' });
   }
 
   const messages = loadCollection(rootDir, 'messages');
@@ -335,3 +335,4 @@ export async function saveIncomingMessage(rootDir, message) {
 export async function saveOutgoingMessage(rootDir, message) {
   return saveMessage(rootDir, message, 'outbound');
 }
+
