@@ -1,4 +1,4 @@
--- Matbakh Al Youm Smart Bot - Initial schema
+﻿-- Matbakh Al Youm Smart Bot - Initial schema
 -- Designed for Supabase / PostgreSQL
 
 create extension if not exists pgcrypto;
@@ -111,7 +111,7 @@ create table if not exists orders (
   customer_name text,
   phone text not null,
   status text not null default 'under_review',
-  status_label_ar text not null default 'طلبك قيد المعالجة',
+  status_label_ar text not null default 'ط·ظ„ط¨ظƒ ظ‚ظٹط¯ ط§ظ„ظ…ط¹ط§ظ„ط¬ط©',
   delivery_type text not null default 'delivery',
   delivery_day text,
   delivery_slot text,
@@ -223,13 +223,13 @@ create index if not exists idx_conversation_sessions_phone on conversation_sessi
 insert into app_settings (key, value)
 values
   ('business_profile', jsonb_build_object(
-    'app', 'مطبخ اليوم المركزي',
-    'business', 'مطبخ اليوم المركزي',
+    'app', 'ظ…ط·ط¨ط® ط§ظ„ظٹظˆظ… ط§ظ„ظ…ط±ظƒط²ظٹ',
+    'business', 'ظ…ط·ط¨ط® ط§ظ„ظٹظˆظ… ط§ظ„ظ…ط±ظƒط²ظٹ',
     'timezone', 'Asia/Amman',
     'directCallPhone', '0779960015',
     'email', 'info@matbakh-alyoum.site',
-    'city', 'عمّان',
-    'district', 'أم السماق'
+    'city', 'ط¹ظ…ظ‘ط§ظ†',
+    'district', 'ط£ظ… ط§ظ„ط³ظ…ط§ظ‚'
   )),
   ('order_window', jsonb_build_object(
     'start', '10:00',
@@ -245,3 +245,4 @@ values
     '17:00-18:30'
   ]::text[]))
 on conflict (key) do update set value = excluded.value, updated_at = now();
+
