@@ -5,7 +5,8 @@ const api = {
   search: '/api/menu/search',
   order: '/api/orders',
   track: '/api/orders/track',
-  lead: '/api/leads'
+  lead: '/api/leads',
+  deliveryZones: '/api/delivery/zones'
 };
 
 async function fetchJson(url, options) {
@@ -129,11 +130,11 @@ async function initOrderForm() {
     const payload = {
       customerName: fd.get('customerName'),
       phone: fd.get('phone'),
-      address: fd.get('address'),
+      address: [fd.get('zoneName'), fd.get('address')].filter(Boolean).join(' — '),
       deliverySlot: fd.get('deliverySlot'),
       deliveryType: fd.get('deliveryType'),
       paymentMethod: fd.get('paymentMethod'),
-      notes: fd.get('notes'),
+      notes: [fd.get('notes'), fd.get('zoneName') ? `المنطقة المختارة: ${fd.get('zoneName')}` : '', fd.get('deliveryFeeHint') ? `رسوم التوصيل: ${fd.get('deliveryFeeHint')}` : ''].filter(Boolean).join(' | '),
       items: [{ display_name_ar: fd.get('itemsText') || 'طلب عام من الموقع', quantity: 1 }]
     };
     const data = await fetchJson(api.order, {
@@ -143,7 +144,8 @@ async function initOrderForm() {
     });
     result.innerHTML = `
       <div class="okbox">
-        <strong>تم استلام طلبك بنجاح.</strong><br>
+        <strong>تم استلام طلبك بنجاح ✅</strong><br>
+        طلبك الآن قيد المعالجة، وجارٍ تثبيت التفاصيل النهائية.<br>
         رقم الطلب: ${data.order.id}<br>
         الحالة: ${data.order.statusLabelAr}<br>
         ملاحظة: ${data.policy}
@@ -178,11 +180,61 @@ async function initLeadForm() {
   });
 }
 
+
+async function initDeliveryZonesPage() {
+  const mount = byId('delivery-zones');
+  if (!mount) return;
+  const data = await fetchJson(api.deliveryZones);
+  const grouped = data.groupedZones || [];
+  if (!grouped.length) {
+    mount.innerHTML = '<div class="notice">سيتم نشر مناطق التوصيل قريبًا.</div>';
+    return;
+  }
+  mount.innerHTML = grouped.map(group => `
+    <section class="card p-20" style="margin-top:16px">
+      <h3>${group.group}</h3>
+      <div class="table-like">
+        ${(group.zones || []).map(zone => `
+          <div class="table-row">
+            <span>${zone.zone_name_ar}</span>
+            <strong>${formatPrice(zone.delivery_fee_jod)}</strong>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+  `).join('');
+}
+
+async function initZoneSelect() {
+  const select = byId('zoneName');
+  const fee = byId('zone-fee');
+  const feeInput = byId('deliveryFeeHint');
+  if (!select) return;
+  const data = await fetchJson(api.deliveryZones);
+  const zones = (data.zones || []).filter(z => z.is_active);
+  select.innerHTML = '<option value="">اختر منطقة التوصيل</option>' + zones.map(zone => `<option value="${zone.zone_name_ar}" data-fee="${zone.delivery_fee_jod || 0}" data-min="${zone.min_order_jod || ''}">${zone.zone_name_ar} — ${formatPrice(zone.delivery_fee_jod || 0)}</option>`).join('');
+  select.addEventListener('change', () => {
+    const opt = select.options[select.selectedIndex];
+    if (!fee) return;
+    if (!opt || !opt.value) {
+      fee.innerHTML = '';
+      if (feeInput) feeInput.value = '';
+      return;
+    }
+    const min = opt.dataset.min ? ` — حد أدنى ${formatPrice(opt.dataset.min)}` : '';
+    if (feeInput) feeInput.value = formatPrice(opt.dataset.fee || 0);
+    fee.innerHTML = `<div class="notice">رسوم التوصيل لهذه المنطقة: <strong>${formatPrice(opt.dataset.fee || 0)}</strong>${min}</div>`;
+  });
+}
+
+
 document.addEventListener('DOMContentLoaded', async () => {
   await loadStatusBanner();
   await initHomeSections();
   await initMenuPage();
   await initTrackForm();
   await initOrderForm();
+  await initZoneSelect();
+  await initDeliveryZonesPage();
   await initLeadForm();
 });

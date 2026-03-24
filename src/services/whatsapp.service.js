@@ -38,11 +38,11 @@ const BUTTON_IDS = {
 };
 
 const ADMIN_COMMANDS = {
-  '/approve': { status: 'approved', label: 'تم اعتماد الطلب' },
-  '/reject': { status: 'rejected', label: 'تم رفض الطلب' },
-  '/ready': { status: 'ready', label: 'طلبكم جاهز' },
-  '/out': { status: 'out_for_delivery', label: 'خرج الطلب للتوصيل' },
-  '/delivered': { status: 'delivered', label: 'تم تسليم الطلب' }
+  '/approve': { status: 'approved', label: 'تم تثبيت طلبك بنجاح' },
+  '/reject': { status: 'rejected', label: 'نعمل الآن على ضبط تفاصيل الطلب بالشكل الأنسب' },
+  '/ready': { status: 'ready', label: 'طلبك أصبح جاهزًا' },
+  '/out': { status: 'out_for_delivery', label: 'طلبك خرج للتوصيل الآن' },
+  '/delivered': { status: 'delivered', label: 'تم تسليم طلبك بنجاح' }
 };
 
 export function whatsappVerify(req, res) {
@@ -147,7 +147,7 @@ function welcomeButtons(language = 'ar') {
   }
   return {
     type: 'button',
-    body: { text: 'أهلًا بكم في مطبخ اليوم المركزي. اختر اللغة أو اطلب المساعدة من موظف مباشر.' },
+    body: { text: 'أهلًا وسهلًا بك في مطبخ اليوم المركزي 🌿\nأكلات بيتية محلية بطعم أصيل وجودة تليق بذوقك. اختر اللغة أو اطلب المساعدة من موظف مباشر.' },
     action: {
       buttons: [
         { type: 'reply', reply: { id: BUTTON_IDS.AR, title: 'العربية' } },
@@ -174,7 +174,7 @@ function consentButtons(language = 'ar') {
   }
   return {
     type: 'button',
-    body: { text: 'قبل المتابعة: نستخدم بيانات المحادثة لتحسين الخدمة وتنظيم الطلبات. الطلب لا يعد معتمدًا نهائيًا إلا بعد موافقة الإدارة. هل توافقون على استقبال العروض والتحديثات المرتبطة بالخدمة؟' },
+    body: { text: 'قبل المتابعة 🌿\nنستخدم بيانات المحادثة لتحسين الخدمة وتنظيم الطلبات. هل توافقون على استقبال العروض والتحديثات المرتبطة بالخدمة؟' },
     action: {
       buttons: [
         { type: 'reply', reply: { id: BUTTON_IDS.CONSENT_YES, title: 'أوافق' } },
@@ -201,7 +201,7 @@ function mainMenuButtons(language = 'ar') {
   }
   return {
     type: 'button',
-    body: { text: 'كيف يمكننا خدمتك اليوم؟' },
+    body: { text: 'إذا كنت تبحث عن أكل بيتي مرتب وطعمه واضح ومجهز بعناية، فأنت في المكان الصحيح 🌿\nكيف يمكننا خدمتك اليوم؟' },
     action: {
       buttons: [
         { type: 'reply', reply: { id: BUTTON_IDS.START_ORDER, title: 'ابدأ الطلب' } },
@@ -223,7 +223,7 @@ function buildSectionList(rootDir, mode = 'order') {
 
   return {
     type: 'list',
-    body: { text: mode === 'order' ? 'اختر القسم الذي تريد الطلب منه.' : 'تفضلوا باختيار قسم المنيو المطلوب.' },
+    body: { text: mode === 'order' ? 'تفضل منيو مطبخ اليوم المركزي 🌿\nاختر القسم المناسب، وبعدها نرتب لك الطلب خطوة بخطوة.' : 'تفضل منيو مطبخ اليوم المركزي 🌿\nاختر القسم المناسب، وبعدها نرتب لك الطلب خطوة بخطوة.' },
     action: {
       button: mode === 'order' ? 'ابدأ الأقسام' : 'عرض الأقسام',
       sections: [
@@ -264,7 +264,7 @@ function buildItemsList(rootDir, sectionSlug, page = 0) {
   }
   return {
     type: 'list',
-    body: { text: `اختر الصنف المطلوب من قسم ${result.section.section_ar}.` },
+    body: { text: `اختيار ممتاز ✅\nالخطوة التالية: اختر الصنف المناسب من قسم ${result.section.section_ar}.` },
     action: {
       button: 'عرض الأصناف',
       sections: [
@@ -303,7 +303,7 @@ function buildQuantityList(item) {
 function buildDeliveryButtons() {
   return {
     type: 'button',
-    body: { text: 'اختر طريقة الاستلام.' },
+    body: { text: 'حدد طريقة الاستلام المناسبة لطلبك 🌿' },
     action: {
       buttons: [
         { type: 'reply', reply: { id: BUTTON_IDS.DELIVERY, title: 'توصيل' } },
@@ -322,7 +322,7 @@ function buildSlotList(config, deliveryType = 'delivery') {
   }));
   return {
     type: 'list',
-    body: { text: deliveryType === 'delivery' ? 'اختر نافذة التوصيل المناسبة.' : 'اختر وقت الاستلام المناسب.' },
+    body: { text: deliveryType === 'delivery' ? 'اختر وقت التوصيل المناسب، وسنكمل مباشرة 🌿' : 'اختر وقت الاستلام المناسب، وسنكمل مباشرة 🌿' },
     action: {
       button: 'أوقات التوصيل',
       sections: [
@@ -338,10 +338,10 @@ function buildSlotList(config, deliveryType = 'delivery') {
 function buildPaymentButtons() {
   return {
     type: 'button',
-    body: { text: 'اختر طريقة الدفع.' },
+    body: { text: 'اختر طريقة الدفع المناسبة.' },
     action: {
       buttons: [
-        { type: 'reply', reply: { id: BUTTON_IDS.PAY_CASH, title: 'نقدًا' } },
+        { type: 'reply', reply: { id: BUTTON_IDS.PAY_CASH, title: 'كاش' } },
         { type: 'reply', reply: { id: BUTTON_IDS.PAY_TRANSFER, title: 'تحويل' } },
         { type: 'reply', reply: { id: BUTTON_IDS.HUMAN, title: 'موظف مباشر' } }
       ]
@@ -352,7 +352,7 @@ function buildPaymentButtons() {
 function buildNotesButtons() {
   return {
     type: 'button',
-    body: { text: 'هل توجد ملاحظات إضافية على الطلب؟' },
+    body: { text: 'إذا عندك أي ملاحظة إضافية على الطلب أخبرنا الآن 🌿' },
     action: {
       buttons: [
         { type: 'reply', reply: { id: BUTTON_IDS.NOTES_SKIP, title: 'بدون ملاحظات' } },
@@ -369,9 +369,9 @@ function buildCartButtons(cartText) {
     body: { text: cartText },
     action: {
       buttons: [
-        { type: 'reply', reply: { id: BUTTON_IDS.CART_ADD_MORE, title: 'أضف صنف' } },
-        { type: 'reply', reply: { id: BUTTON_IDS.CART_SUBMIT, title: 'إرسال الطلب' } },
-        { type: 'reply', reply: { id: BUTTON_IDS.CART_CLEAR, title: 'إلغاء السلة' } }
+        { type: 'reply', reply: { id: BUTTON_IDS.CART_ADD_MORE, title: 'إدخال جديد' } },
+        { type: 'reply', reply: { id: BUTTON_IDS.CART_SUBMIT, title: 'تثبيت الطلب' } },
+        { type: 'reply', reply: { id: BUTTON_IDS.CART_CLEAR, title: 'إلغاء الطلب' } }
       ]
     }
   };
@@ -386,11 +386,7 @@ function summarizeCart(cart = []) {
   const lines = cart.map((item, index) => `${index + 1}. ${item.displayNameAr} × ${item.quantity} = ${money(item.lineTotalJod)}`);
   return {
     subtotal,
-    text: `تمت إضافة الصنف إلى السلة ✅
-
-${lines.join('\n')}
-
-المجموع الحالي: ${money(subtotal)}`
+    text: `هذا ملخص طلبك 🌿\n\n${lines.join('\n')}\n\nالإجمالي الحالي: ${money(subtotal)}\n\nإذا كان كل شيء مناسبًا اضغط: تثبيت الطلب`
   };
 }
 
@@ -411,10 +407,25 @@ function buildOrderSummary(order) {
   ].filter(Boolean).join('\n');
 }
 
-function customerStatusMessage(statusLabelAr, orderId, adminNotes = '') {
-  const lines = [`تحديث على طلبكم ${orderId}: ${statusLabelAr}.`];
-  if (adminNotes) lines.push(`ملاحظة الإدارة: ${adminNotes}`);
-  lines.push('للإستفسار أو التعديل، أرسلوا رسالة مباشرة هنا أو اختاروا موظف مباشر.');
+function customerStatusMessage(status, orderId, adminNotes = '') {
+  if (status === 'approved') {
+    return `تم تثبيت طلبك بنجاح ✅\n\nرقم الطلب: ${orderId}\nيمكنك متابعة حالة الطلب من خلال الرسائل التي ستصلك تلقائيًا حتى التسليم.`;
+  }
+  if (status === 'rejected') {
+    return `نعمل الآن على ضبط تفاصيل الطلب بالشكل الأنسب 🌿\nيوجد توضيح بسيط يساعدنا على تثبيت الطلب بشكل أدق:\n\n${adminNotes || 'يرجى تزويدنا بالتفاصيل الناقصة'}\n\nبمجرد تزويدنا به نكمل لك مباشرة.`;
+  }
+  if (status === 'ready') {
+    return 'طلبك أصبح جاهزًا ✅\nوجارٍ ترتيبه للمرحلة التالية من التوصيل.';
+  }
+  if (status === 'out_for_delivery') {
+    return `طلبك خرج للتوصيل الآن 🚚\nرقم الطلب: ${orderId}`;
+  }
+  if (status === 'delivered') {
+    return 'الحمد لله، تم تسليم طلبك ✅\nنتمنى أن ينال رضاك ويعجبك الطعم كما تحب 🌿';
+  }
+  const lines = [`تحديث على طلبك ${orderId}: ${status}.`];
+  if (adminNotes) lines.push(adminNotes);
+  lines.push('للاستفسار أو التعديل، أرسل رسالة مباشرة هنا أو اختر موظف مباشر.');
   return lines.join('\n');
 }
 
@@ -477,7 +488,7 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
 
 async function replyHuman(rootDir, to, config, req) {
   const { phone } = buildTextLinks(config, req);
-  return sendWhatsAppText(rootDir, to, `يسعدنا خدمتك. يمكنك التواصل مباشرة مع الموظف على الرقم ${phone} أو الاستمرار داخل البوت.`);
+  return sendWhatsAppText(rootDir, to, `يسعدنا خدمتك 🌿 يمكنك التواصل مباشرة مع الموظف على الرقم ${phone} أو الاستمرار داخل البوت.`);
 }
 
 function readIncomingSelection(message) {
@@ -514,7 +525,7 @@ async function finalizeOrder(rootDir, phone, session, config) {
   const data = readSessionData(session);
   const cart = data.cart || [];
   if (!cart.length) {
-    return { error: 'السلة فارغة حاليًا. اختر ابدأ الطلب لإضافة أصناف.' };
+    return { error: 'لا يوجد أصناف داخل السلة حاليًا. اختر ابدأ الطلب لإضافة الأصناف.' };
   }
   const subtotal = cart.reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const orderId = `MY-${Date.now()}`;
@@ -529,7 +540,7 @@ async function finalizeOrder(rootDir, phone, session, config) {
     deliveryType: data.orderDraft?.deliveryType || 'delivery',
     paymentMethod: data.orderDraft?.paymentMethod || 'cash',
     status: 'under_review',
-    statusLabelAr: 'قيد المراجعة',
+    statusLabelAr: 'طلبك قيد المعالجة',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     subtotalJod: subtotal,
@@ -564,9 +575,9 @@ async function processAdminCommand(rootDir, from, text) {
   }
   if (command === '/pending') {
     const orders = await getOrdersByStatus(rootDir, 'under_review', 10);
-    if (!orders.length) return sendWhatsAppText(rootDir, from, 'لا توجد طلبات قيد المراجعة حاليًا.');
+    if (!orders.length) return sendWhatsAppText(rootDir, from, 'لا توجد طلبات قيد المعالجة حاليًا.');
     const body = orders.map(order => `• ${order.id} — ${order.phone} — ${money(order.total_jod || order.totalJod)} — ${order.delivery_slot || '-'}`).join('\n');
-    return sendWhatsAppText(rootDir, from, `الطلبات قيد المراجعة:\n${body}`);
+    return sendWhatsAppText(rootDir, from, `الطلبات قيد المعالجة داخليًا:\n${body}`);
   }
   if (command === '/view' && orderId) {
     const order = await getOrderById(rootDir, orderId);
@@ -591,7 +602,7 @@ async function processAdminCommand(rootDir, from, text) {
       approvedByPhone: from,
       approvedAt: new Date().toISOString()
     });
-    await sendWhatsAppText(rootDir, normalizePhone(order.phone).replace(/^\+/, ''), customerStatusMessage(meta.label, orderId, adminNotes));
+    await sendWhatsAppText(rootDir, normalizePhone(order.phone).replace(/^\+/, ''), customerStatusMessage(meta.status, orderId, adminNotes));
     return sendWhatsAppText(rootDir, from, `تم تحديث ${orderId} إلى: ${meta.label}`);
   }
   return sendWhatsAppText(rootDir, from, 'أمر غير معروف. أرسل /help لعرض أوامر الإدارة.');
@@ -799,7 +810,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
         currentState: 'awaiting_address',
         sessionData: { orderDraft: { deliverySlot }, awaiting: 'address' }
       });
-      const result = await sendWhatsAppText(rootDir, to, 'أرسل عنوان التوصيل بالتفصيل أو شارك الموقع الآن.');
+      const result = await sendWhatsAppText(rootDir, to, 'باقي تفاصيل بسيطة ونكمل طلبك 🌿\nأرسل المنطقة أو العنوان بالتفصيل أو شارك الموقع الآن.');
       return json(res, 200, { ok: true, delivered: result, mode: 'address_prompt' });
     }
     await persistSession(rootDir, from, session, {
@@ -822,7 +833,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
 
   if (selection === BUTTON_IDS.NOTES_ADD) {
     await persistSession(rootDir, from, session, { currentState: 'awaiting_notes_text', sessionData: { awaiting: 'notes_text' } });
-    const result = await sendWhatsAppText(rootDir, to, 'أرسل الملاحظات الإضافية على الطلب الآن.');
+    const result = await sendWhatsAppText(rootDir, to, 'أرسل الملاحظات الإضافية على الطلب الآن، أو اكتب بدون إن لم يوجد شيء.');
     return json(res, 200, { ok: true, delivered: result, mode: 'notes_text' });
   }
 
@@ -832,7 +843,10 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
       const result = await sendWhatsAppText(rootDir, to, finalize.error);
       return json(res, 200, { ok: true, delivered: result, mode: 'finalize_error' });
     }
-    const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبكم بنجاح ✅\nرقم الطلب: ${finalize.order.id}\nالحالة الحالية: قيد المراجعة\n\nلن يتم اعتماد الطلب نهائيًا إلا من الإدارة.`);
+    const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبك بنجاح ✅
+طلبك الآن قيد المعالجة، وجارٍ تثبيت التفاصيل النهائية وإصدار رقم الطلب.
+رقم طلبك هو: ${finalize.order.id}
+يمكنك متابعة حالة الطلب من خلال الرسائل التي ستصلك تلقائيًا حتى التسليم.`);
     await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(currentLanguage));
     return json(res, 200, { ok: true, delivered: result, mode: 'order_created' });
   }
@@ -891,7 +905,10 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
       const result = await sendWhatsAppText(rootDir, to, finalize.error);
       return json(res, 200, { ok: true, delivered: result, mode: 'notes_finalize_error' });
     }
-    const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبكم بنجاح ✅\nرقم الطلب: ${finalize.order.id}\nالحالة الحالية: قيد المراجعة\n\nلن يتم اعتماد الطلب نهائيًا إلا من الإدارة.`);
+    const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبك بنجاح ✅
+طلبك الآن قيد المعالجة، وجارٍ تثبيت التفاصيل النهائية وإصدار رقم الطلب.
+رقم طلبك هو: ${finalize.order.id}
+يمكنك متابعة حالة الطلب من خلال الرسائل التي ستصلك تلقائيًا حتى التسليم.`);
     await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(currentLanguage));
     return json(res, 200, { ok: true, delivered: result, mode: 'notes_order_created' });
   }

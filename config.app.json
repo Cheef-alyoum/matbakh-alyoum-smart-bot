@@ -3,7 +3,7 @@
   "app": "مطبخ اليوم المركزي",
   "business": "مطبخ اليوم المركزي",
   "timezone": "Asia/Amman",
-  "today": "23/03/2026",
+  "today": "24/03/2026",
   "adminCount": 3,
   "directCallPhone": "0779960015",
   "orderWindow": {
@@ -54,6 +54,35 @@
     "voiceMessages": true,
     "structuredData": true,
     "publicMenu": true,
-    "publicOrderTracking": true
+    "publicOrderTracking": true,
+    "deliveryZones": true,
+    "cashOnDeliveryOnly": true
+  },
+  "adminPhones": [
+    "962788328832",
+    "962799080840",
+    "962799060405"
+  ],
+  "businessConfig": {
+    "brandNameAr": "مطبخ اليوم المركزي",
+    "brandNameEn": "Matbakh Al-youm Al-markazi",
+    "shortDescription": "مطبخ اليوم مطبخ منزلي مركزي في عمّان، يقدّم أكلات بيتية محلية بطعم أصيل وجودة عالية، مع خيارات جاهزة للأكل، جاهزة للطبخ، ومبرّدة أو مفرّزة، وخدمة توصيل منزلي سريع.",
+    "toneOfVoice": "لهجة أردنية محلية واضحة، بأسلوب شيف محترف وراقي، تمثل علامة تجارية قوية وموثوقة.",
+    "emojiUsage": "نعم - استخدام خفيف ومريح بصرياً",
+    "whatsappPrimary": "962779960015",
+    "email": "info@matbakh-alyoum.site",
+    "addressShort": "عمان – أم السماق",
+    "messageReceptionHours": "24/7",
+    "prepHours": "10:00 AM - 06:30 PM",
+    "deliveryHours": "10:00 AM - 06:30 PM",
+    "sameDayRule": "طلب اليوم نفسه قبل 90-120 دقيقة على الأقل",
+    "scheduledRule": "الطلبات المجدولة مسموحة ضمن ساعات العمل",
+    "finalConfirmationRule": "لا يتم اعتماد أي طلب نهائياً إلا بموافقة صريحة من رقم إداري معتمد",
+    "customerUiRule": "تعامل العميل بالأزرار قدر الإمكان؛ النص الحر فقط للملاحظات العامة أو الخاصة بالطلب",
+    "dataRetention": "نعم - للاستخدام التشغيلي والتحليل الداخلي وتحسين الخدمة",
+    "marketingMessages": "فقط بموافقة الإدارة",
+    "followupWindow": "خلال 24 ساعة كحد أقصى",
+    "paymentMethodsAllowed": "الدفع عند الاستلام - كاش",
+    "defaultPaymentMethod": "الدفع عند الاستلام - كاش"
   }
 }

@@ -34,6 +34,7 @@ const server = http.createServer(async (req, res) => {
           order: '/api/orders',
           track: '/api/orders/track',
           lead: '/api/leads',
+          deliveryZones: '/api/delivery/zones',
           whatsappWebhook: '/api/webhooks/whatsapp'
         }
       });
@@ -62,6 +63,12 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/meta/catalog' && method === 'GET') {
       return json(res, 200, { ok: true, items: getMetaCatalog(rootDir) });
+    }
+
+    if (pathname === '/api/delivery/zones' && method === 'GET') {
+      const zones = readJsonFile(path.join(rootDir, 'data', 'delivery_zones.json'), []);
+      const groupedZones = readJsonFile(path.join(rootDir, 'data', 'delivery_zones_grouped.json'), []);
+      return json(res, 200, { ok: true, zones, groupedZones });
     }
 
     if (pathname === '/api/leads' && method === 'POST') {
@@ -114,7 +121,7 @@ const server = http.createServer(async (req, res) => {
         deliveryType,
         paymentMethod,
         status: 'under_review',
-        statusLabelAr: 'قيد المراجعة',
+        statusLabelAr: 'طلبك قيد المعالجة',
         createdAt: now,
         updatedAt: now
       });
@@ -136,7 +143,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, {
         ok: true,
         order,
-        policy: 'الطلب تم استلامه وهو الآن قيد المراجعة. لا يتم الاعتماد النهائي إلا من الإدارة.',
+        policy: 'تم استلام طلبك بنجاح، وطلبك الآن قيد المعالجة. جارٍ تثبيت التفاصيل النهائية وإصدار التأكيد النهائي.',
         orderWindowOpen: isWithinOrderWindow(appConfig)
       });
     }

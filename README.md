@@ -1,4 +1,4 @@
-# Matbakh Al Youm Smart Bot v1.3.0
+# Matbakh Al Youm Smart Bot Final Release v1.4.0
 
 حزمة جاهزة للتشغيل تتضمن:
 - موقع عام احترافي
@@ -76,3 +76,9 @@ npm run smoke:local
 - `.env.production.example`
 - `docs/DEPLOY_RENDER_AR.md`
 - `docs/PRODUCTION_CHECKLIST_AR.md`
+
+
+## آخر اعتماد على الرسائل الظاهرة للعميل
+- لا نُظهر للعميل تعبيرات مثل: بانتظار مراجعة الإدارة أو بانتظار الموافقة.
+- النص الظاهر بدلًا من ذلك يعتمد: قيد المعالجة، جارٍ تثبيت تفاصيل الطلب، تم تثبيت الطلب بنجاح، خرج للتوصيل، تم التسليم.
+- القاموس النهائي للحالات موجود في `docs/FINAL_CUSTOMER_COPY_AR.md`.

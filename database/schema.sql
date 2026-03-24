@@ -75,6 +75,26 @@ create table if not exists conversation_sessions (
 alter table conversation_sessions add column if not exists session_data jsonb not null default '{}'::jsonb;
 alter table conversation_sessions add column if not exists last_order_id text;
 
+
+
+create table if not exists delivery_zones (
+  zone_id text primary key,
+  zone_type text not null,
+  sector_or_governorate text not null,
+  zone_name_ar text not null,
+  coverage_status text not null default 'available',
+  sort_order integer,
+  delivery_fee_jod numeric(10,3),
+  min_order_jod numeric(10,3),
+  estimated_minutes integer,
+  same_day_allowed boolean not null default true,
+  is_active boolean not null default true,
+  notes text,
+  source_file text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   source text not null default 'website',
@@ -91,7 +111,7 @@ create table if not exists orders (
   customer_name text,
   phone text not null,
   status text not null default 'under_review',
-  status_label_ar text not null default 'قيد المراجعة',
+  status_label_ar text not null default 'طلبك قيد المعالجة',
   delivery_type text not null default 'delivery',
   delivery_slot text,
   payment_method text not null default 'cash',
@@ -185,6 +205,8 @@ create index if not exists idx_menu_items_status on menu_items(status);
 create index if not exists idx_orders_phone on orders(phone);
 create index if not exists idx_orders_status on orders(status);
 create index if not exists idx_messages_phone on messages_log(phone);
+create index if not exists idx_delivery_zones_sector on delivery_zones(sector_or_governorate);
+create index if not exists idx_delivery_zones_active on delivery_zones(is_active);
 create index if not exists idx_conversation_sessions_phone on conversation_sessions(phone);
 
 -- Baseline settings from approved operating config
