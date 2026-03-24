@@ -665,21 +665,25 @@ async function sendWhatsAppPayload(to, payload) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!phoneNumberId || !accessToken) {
-    return { skipped: true, reason: 'ط¨ظٹط§ظ†ط§طھ WhatsApp API ط؛ظٹط± ظ…ط¶ط¨ظˆط·ط©.' };
+    return { skipped: true, reason: 'بيانات WhatsApp API غير مضبوطة.' };
   }
+
+  const requestBody = JSON.stringify({
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    ...payload
+  });
 
   const response = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
+      'Accept': 'application/json',
+      'Accept-Charset': 'utf-8',
       Authorization: `Bearer ${accessToken}`
     },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to,
-      ...payload
-    })
+    body: Buffer.from(requestBody, 'utf8')
   });
 
   const data = await response.json().catch(() => ({}));
@@ -1480,6 +1484,7 @@ export async function processWhatsAppWebhook(req, res, config, rootDir) {
     return json(res, 200, { ok: false, recovered: true, message: error.message });
   }
 }
+
 
 
 
