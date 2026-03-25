@@ -4,7 +4,6 @@ import { getDeliveryGroupByKey, getDeliveryGroupList, getDeliveryZoneById } from
 import { getBotRoots, getItemExtras, getItemsForRoot, getMenuItemById } from './menu.service.js';
 import {
   createOrder,
-  findOrdersByPhone,
   generateNextOrderCode,
   getConversationSession,
   getCustomerProfileSummary,
@@ -58,8 +57,12 @@ const BUTTON_IDS = {
 const TERMINAL_STATUSES = ['delivered', 'cancelled', 'rejected', 'customer_exit'];
 const TRACK_TERMS = /(حالة|متابعة|وين|جاهز|وصل|طلبي|tracking|track|status)/i;
 
+function getSafeHost(req) {
+  return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000';
+}
+
 export function whatsappVerify(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req?.url || '/api/webhooks/whatsapp', `http://${getSafeHost(req)}`);
   const mode = url.searchParams.get('hub.mode');
   const token = url.searchParams.get('hub.verify_token');
   const challenge = url.searchParams.get('hub.challenge');
@@ -74,7 +77,7 @@ export function whatsappVerify(req, res) {
 }
 
 function getBaseUrl(config, req) {
-  return process.env.BASE_URL || config.site.baseUrl || `https://${req.headers.host}`;
+  return process.env.BASE_URL || config?.site?.baseUrl || `https://${getSafeHost(req)}`;
 }
 
 function buildTextLinks(config, req) {
@@ -155,36 +158,39 @@ function readIncomingSelection(message, rootDir = '') {
   if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
     return message.interactive.list_reply?.id || '';
   }
+
   const text = String(message.text?.body || '').trim();
   const simple = text.replace(/🌿|✅|🚚|👨‍🍳/g, '').trim();
+
   const map = {
-    'العربية': BUTTON_IDS.AR,
-    'english': BUTTON_IDS.EN,
-    'أوافق': BUTTON_IDS.CONSENT_YES,
+    العربية: BUTTON_IDS.AR,
+    english: BUTTON_IDS.EN,
+    أوافق: BUTTON_IDS.CONSENT_YES,
     'خدمة فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
     'لا أوافق': BUTTON_IDS.CONSENT_NO,
-    'اطلب': BUTTON_IDS.START_ORDER,
+    اطلب: BUTTON_IDS.START_ORDER,
     'ابدأ الطلب': BUTTON_IDS.START_ORDER,
-    'المنيو': BUTTON_IDS.SHOW_MENU,
-    'تتبع': BUTTON_IDS.TRACK_ORDER,
-    'موظف': BUTTON_IDS.HUMAN,
+    المنيو: BUTTON_IDS.SHOW_MENU,
+    تتبع: BUTTON_IDS.TRACK_ORDER,
+    موظف: BUTTON_IDS.HUMAN,
     'موظف مباشر': BUTTON_IDS.HUMAN,
-    'إضافة': BUTTON_IDS.ADD_MORE,
-    'متابعة': BUTTON_IDS.CHECKOUT,
-    'إلغاء': BUTTON_IDS.CLEAR_CART,
-    'توصيل': BUTTON_IDS.DELIVERY,
-    'استلام': BUTTON_IDS.PICKUP,
-    'كاش': BUTTON_IDS.PAY_CASH,
-    'ملاحظات': BUTTON_IDS.NOTES_ADD,
+    إضافة: BUTTON_IDS.ADD_MORE,
+    متابعة: BUTTON_IDS.CHECKOUT,
+    إلغاء: BUTTON_IDS.CLEAR_CART,
+    توصيل: BUTTON_IDS.DELIVERY,
+    استلام: BUTTON_IDS.PICKUP,
+    كاش: BUTTON_IDS.PAY_CASH,
+    ملاحظات: BUTTON_IDS.NOTES_ADD,
     'بدون ملاحظات': BUTTON_IDS.NOTES_SKIP,
-    'تأكيد': BUTTON_IDS.CUSTOMER_CONFIRM,
-    'تعديل': BUTTON_IDS.CUSTOMER_EDIT,
-    'خروج': BUTTON_IDS.CUSTOMER_EXIT,
-    'الأصناف': BUTTON_IDS.EDIT_ITEMS,
-    'الموعد': BUTTON_IDS.EDIT_SCHEDULE,
-    'المنطقة': BUTTON_IDS.EDIT_ZONE,
-    'الملاحظات': BUTTON_IDS.EDIT_NOTES
+    تأكيد: BUTTON_IDS.CUSTOMER_CONFIRM,
+    تعديل: BUTTON_IDS.CUSTOMER_EDIT,
+    خروج: BUTTON_IDS.CUSTOMER_EXIT,
+    الأصناف: BUTTON_IDS.EDIT_ITEMS,
+    الموعد: BUTTON_IDS.EDIT_SCHEDULE,
+    المنطقة: BUTTON_IDS.EDIT_ZONE,
+    الملاحظات: BUTTON_IDS.EDIT_NOTES
   };
+
   if (map[simple.toLowerCase()]) return map[simple.toLowerCase()];
   if (map[simple]) return map[simple];
 
@@ -279,6 +285,7 @@ function welcomeButtons(returning = false, language = 'ar') {
   const body = returning
     ? 'يسعدنا تواصلك معنا من جديد 🌿\nنرتب لك طلبك بسرعة ونحفظ لك المتابعة من رقمك مباشرة. اختر اللغة أو اطلب موظفًا.'
     : 'أهلًا وسهلًا بك في مطبخ اليوم المركزي 🌿\nأكلات بيتية محلية بطعم أصيل وجودة تليق بذوقك. اختر اللغة أو اطلب المساعدة من موظف مباشر.';
+
   return {
     type: 'button',
     body,
@@ -328,9 +335,11 @@ function rootList(rootDir, page = 0) {
     title: shortButton(root.title),
     description: `${root.count} صنف`
   }));
+
   if (start + pageSize < roots.length) {
     rows.push({ id: `roots_page:${page + 1}`, title: 'المزيد', description: 'عرض أقسام إضافية' });
   }
+
   return {
     type: 'list',
     body: 'تفضل منيو مطبخ اليوم المركزي 🌿\nاختر القسم المناسب، وبعدها نرتب لك الطلب خطوة بخطوة.',
@@ -373,9 +382,11 @@ function itemList(rootDir, filters = {}, page = 0) {
     title: shortButton(item.display_name_ar || item.item_name_ar),
     description: `${money(item.price_1_jod)} — ${item.unit_ar}`
   }));
+
   if (start + pageSize < items.length) {
     rows.push({ id: `items_page:${page + 1}`, title: 'المزيد', description: 'عرض أصناف إضافية' });
   }
+
   return {
     type: 'list',
     body: 'اختر الصنف المناسب، وبعدها ننتقل للكمية والإضافات 🌿',
@@ -402,7 +413,9 @@ function extrasButtons(item, extras = []) {
     title: shortButton(extra.label),
     description: `${money(extra.price || 0)}`
   }));
+
   rows.push({ id: BUTTON_IDS.ADD_MORE, title: 'إضافة', description: 'بدون إضافات جديدة' });
+
   return {
     type: 'list',
     body: `يمكنك إضافة خيارات مرتبطة بـ ${item.display_name_ar || item.item_name_ar} 🌿`,
@@ -416,6 +429,7 @@ function cartSummary(cart = [], draft = {}) {
   const subtotal = (cart || []).reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const deliveryFee = Number(draft.deliveryFeeJod || 0);
   const total = subtotal + deliveryFee;
+
   return {
     subtotal,
     deliveryFee,
@@ -436,15 +450,27 @@ function cartButtons(summaryText) {
   };
 }
 
-function dayList(config) {
+function dayList() {
   const base = new Date();
   const rows = [];
+
   for (let i = 0; i < 5; i += 1) {
     const date = new Date(base);
     date.setDate(base.getDate() + i);
-    const label = i === 0 ? 'اليوم' : i === 1 ? 'غدًا' : date.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'numeric' });
-    rows.push({ id: `day:${date.toISOString().slice(0, 10)}:${label}`, title: shortButton(label), description: date.toISOString().slice(0, 10) });
+    const label =
+      i === 0
+        ? 'اليوم'
+        : i === 1
+          ? 'غدًا'
+          : date.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'numeric' });
+
+    rows.push({
+      id: `day:${date.toISOString().slice(0, 10)}:${label}`,
+      title: shortButton(label),
+      description: date.toISOString().slice(0, 10)
+    });
   }
+
   return {
     type: 'list',
     body: 'اختر يوم التنفيذ أو التوصيل المناسب 🌿',
@@ -461,7 +487,11 @@ function slotList(config) {
     buttonText: 'اختيار الوقت',
     sections: [{
       title: 'أوقات التوصيل',
-      rows: slots.map(slot => ({ id: `slot:${slot}`, title: shortButton(slot), description: 'موعد التوصيل' }))
+      rows: slots.map(slot => ({
+        id: `slot:${slot}`,
+        title: shortButton(slot),
+        description: 'موعد التوصيل'
+      }))
     }]
   };
 }
@@ -486,7 +516,11 @@ function sectorList(rootDir) {
     buttonText: 'اختيار القطاع',
     sections: [{
       title: 'القطاعات',
-      rows: groups.slice(0, 10).map((group, index) => ({ id: `sector:${group.key}:0`, title: shortButton(group.group), description: `${group.zones.length} منطقة` }))
+      rows: groups.slice(0, 10).map(group => ({
+        id: `sector:${group.key}:0`,
+        title: shortButton(group.group),
+        description: `${group.zones.length} منطقة`
+      }))
     }]
   };
 }
@@ -502,7 +536,11 @@ function zoneList(rootDir, sectorKey, page = 0) {
     title: shortButton(zone.zone_name_ar),
     description: `رسوم ${money(zone.delivery_fee_jod)}`
   }));
-  if (start + pageSize < zones.length) rows.push({ id: `sector:${sectorKey}:${page + 1}`, title: 'المزيد', description: 'عرض مناطق إضافية' });
+
+  if (start + pageSize < zones.length) {
+    rows.push({ id: `sector:${sectorKey}:${page + 1}`, title: 'المزيد', description: 'عرض مناطق إضافية' });
+  }
+
   return {
     type: 'list',
     body: `اختر المنطقة داخل ${group?.group || 'القطاع'} 🌿`,
@@ -553,6 +591,7 @@ function buildCustomerFinalSummary(cart = [], draft = {}) {
     draft.deliveryFeeJod ? `رسوم التوصيل: ${money(draft.deliveryFeeJod)}` : null,
     `الإجمالي النهائي: ${money(summary.total)}`
   ].filter(Boolean);
+
   return lines.join('\n');
 }
 
@@ -588,7 +627,7 @@ function editList() {
 function adminOrderSummary(order, items = []) {
   const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod)}`);
   return [
-    `طلب جديد يحتاج اعتماد 🌿`,
+    'طلب جديد يحتاج اعتماد 🌿',
     `رقم الطلب: ${order.id}`,
     `العميل: ${order.customer_name || 'غير مسجل'}`,
     `الهاتف: ${order.phone}`,
@@ -637,6 +676,7 @@ function textIntent(text = '') {
 async function sendWhatsAppPayload(to, payload) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+
   if (!phoneNumberId || !accessToken) {
     return { skipped: true, reason: 'بيانات WhatsApp API غير مضبوطة.' };
   }
@@ -652,7 +692,7 @@ async function sendWhatsAppPayload(to, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Accept': 'application/json',
+      Accept: 'application/json',
       'Accept-Charset': 'utf-8',
       Authorization: `Bearer ${accessToken}`
     },
@@ -666,6 +706,7 @@ async function sendWhatsAppPayload(to, payload) {
 async function sendWhatsAppText(rootDir, to, body) {
   const result = await sendWhatsAppPayload(to, { type: 'text', text: { body } });
   logWebhook('OUTGOING_TEXT', { to, status: result.status || null, body });
+
   try {
     await saveOutgoingMessage(rootDir, {
       id: crypto.randomUUID(),
@@ -677,13 +718,20 @@ async function sendWhatsAppText(rootDir, to, body) {
   } catch (error) {
     console.error('MESSAGES_LOG_SUPABASE_ERROR', error);
   }
+
   return result;
 }
 
 async function sendWhatsAppInteractive(rootDir, to, interactive) {
   const payload = { type: 'interactive', interactive };
   const result = await sendWhatsAppPayload(to, payload);
-  logWebhook('OUTGOING_INTERACTIVE', { to, status: result.status || null, type: interactive.type, body: interactive.body?.text || interactive.body });
+  logWebhook('OUTGOING_INTERACTIVE', {
+    to,
+    status: result.status || null,
+    type: interactive.type,
+    body: interactive.body?.text || interactive.body
+  });
+
   try {
     await saveOutgoingMessage(rootDir, {
       id: crypto.randomUUID(),
@@ -695,6 +743,7 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
   } catch (error) {
     console.error('MESSAGES_LOG_SUPABASE_ERROR', error);
   }
+
   return result;
 }
 
@@ -702,16 +751,18 @@ async function notifyAdminsNewOrder(rootDir, order, config) {
   const items = await getOrderItems(rootDir, order.id);
   const admins = getAdminNumbers(config);
   const summary = adminOrderSummary(order, items);
+
   for (const adminPhone of admins) {
     await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id));
     await sendWhatsAppText(rootDir, adminPhone, summary);
   }
 }
 
-async function createOrUpdateOrderFromDraft(rootDir, phone, session, config) {
+async function createOrUpdateOrderFromDraft(rootDir, phone, session) {
   const sessionData = readSessionData(session);
   const draft = sessionData.orderDraft || defaultDraft();
   const cart = sessionData.cart || [];
+
   if (!cart.length) return { error: 'لا يوجد أي صنف داخل الطلب حاليًا.' };
   if (!draft.deliveryDayIso || !draft.deliverySlot) return { error: 'اليوم أو الوقت غير محدد.' };
   if (draft.deliveryType === 'delivery' && (!draft.zoneId || !draft.address)) return { error: 'المنطقة أو العنوان غير مكتمل.' };
@@ -724,10 +775,12 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session, config) {
 
   let orderId = sessionData.lastOrderId;
   let existingOrder = null;
+
   if (draft.revisionOrderId) {
     existingOrder = await getOrderById(rootDir, draft.revisionOrderId);
     orderId = existingOrder?.id || draft.revisionOrderId;
   }
+
   if (!orderId) orderId = await generateNextOrderCode(rootDir, 'MAE');
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
@@ -790,10 +843,11 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session, config) {
 async function handleAdminAction(rootDir, from, selection, config) {
   const [action, orderId] = selection.split(':');
   const order = await getOrderById(rootDir, orderId);
+
   if (!order) return { ok: false, message: 'تعذر العثور على الطلب المطلوب.' };
 
   if (action === BUTTON_IDS.ADMIN_APPROVE) {
-    const updated = await updateOrderStatus(rootDir, orderId, {
+    await updateOrderStatus(rootDir, orderId, {
       status: 'approved',
       status_label_ar: 'تم اعتماد الطلب',
       approved_by_phone: from,
@@ -810,6 +864,7 @@ async function handleAdminAction(rootDir, from, selection, config) {
       status_label_ar: 'بانتظار تعديل العميل',
       admin_notes: 'يرجى مراجعة تفاصيل الطلب مع العميل قبل الاعتماد.'
     });
+
     const session = await getConversationSession(rootDir, order.phone);
     await persistSession(rootDir, order.phone, session, {
       currentState: 'review_customer_summary',
@@ -818,6 +873,7 @@ async function handleAdminAction(rootDir, from, selection, config) {
         orderDraft: { ...defaultDraft(), revisionOrderId: orderId }
       }
     });
+
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('awaiting_customer_edit', orderId, updated?.admin_notes));
     return { ok: true, message: 'تم تحويل الطلب إلى تعديل العميل.' };
   }
@@ -866,9 +922,11 @@ async function handleAdminAction(rootDir, from, selection, config) {
 
 export async function processWhatsAppWebhook(rootDir, req, res, config) {
   try {
+    const safeHost = getSafeHost(req);
+
     logWebhook('HTTP_WEBHOOK_REQUEST', {
-      method: req.method,
-      pathname: new URL(req.url, `http://${req.headers.host}`).pathname,
+      method: req?.method || 'POST',
+      pathname: new URL(req?.url || '/api/webhooks/whatsapp', `http://${safeHost}`).pathname,
       time: nowIso()
     });
 
@@ -887,7 +945,9 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       statusType: status?.status || null
     });
 
-    if (!message) return json(res, 200, { ok: true, ignored: true });
+    if (!message) {
+      return json(res, 200, { ok: true, ignored: true });
+    }
 
     const from = normalizePhone(message.from || '').replace(/^\+/, '');
     const to = normalizePhone(message.from || '').replace(/^\+/, '');
@@ -908,7 +968,15 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     if (isAdminPhone(from, config) && type === 'interactive') {
       const selection = readIncomingSelection(message, rootDir);
-      if (selection.startsWith(BUTTON_IDS.ADMIN_APPROVE) || selection.startsWith(BUTTON_IDS.ADMIN_MODIFY) || selection.startsWith(BUTTON_IDS.ADMIN_REJECT) || selection.startsWith(BUTTON_IDS.ADMIN_PREPARING) || selection.startsWith(BUTTON_IDS.ADMIN_READY) || selection.startsWith(BUTTON_IDS.ADMIN_OUT) || selection.startsWith(BUTTON_IDS.ADMIN_DELIVERED)) {
+      if (
+        selection.startsWith(BUTTON_IDS.ADMIN_APPROVE) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_MODIFY) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_REJECT) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_PREPARING) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_READY) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_OUT) ||
+        selection.startsWith(BUTTON_IDS.ADMIN_DELIVERED)
+      ) {
         const outcome = await handleAdminAction(rootDir, from, selection, config);
         const result = await sendWhatsAppText(rootDir, to, outcome.message);
         return json(res, 200, { ok: true, delivered: result, mode: 'admin_action' });
@@ -917,21 +985,26 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     if (isAdminPhone(from, config) && type === 'text') {
       const command = text.trim();
+
       if (command === '/pending') {
         const orders = await getOrdersByStatus(rootDir, 'awaiting_admin_review');
         const bodyText = orders.length
           ? ['طلبات بانتظار الاعتماد 🌿', '', ...orders.slice(0, 10).map(order => `${order.id} — ${order.phone} — ${money(order.total_jod)}`)].join('\n')
           : 'لا توجد طلبات بانتظار الاعتماد حاليًا.';
+
         const result = await sendWhatsAppText(rootDir, to, bodyText);
         return json(res, 200, { ok: true, delivered: result, mode: 'admin_pending' });
       }
+
       if (command.startsWith('/view ')) {
         const orderId = command.split(' ').slice(1).join(' ').trim();
         const order = await getOrderById(rootDir, orderId);
+
         if (!order) {
           const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الطلب المطلوب.');
           return json(res, 200, { ok: true, delivered: result, mode: 'admin_view_missing' });
         }
+
         const items = await getOrderItems(rootDir, orderId);
         const summary = adminOrderSummary(order, items);
         await sendWhatsAppText(rootDir, to, summary);
@@ -965,7 +1038,11 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     }
 
     if (openOrder && !TERMINAL_STATUSES.includes(openOrder.status) && !selection && !TRACK_TERMS.test(text)) {
-      const result = await sendWhatsAppText(rootDir, to, `لديك طلب قائم حاليًا 🌿\nرقم الطلب: ${openOrder.id}\nحالته: ${labelFromStatus(openOrder.status)}\nإذا رغبت بمتابعته أرسل: حالة طلبي`);
+      const result = await sendWhatsAppText(
+        rootDir,
+        to,
+        `لديك طلب قائم حاليًا 🌿\nرقم الطلب: ${openOrder.id}\nحالته: ${labelFromStatus(openOrder.status)}\nإذا رغبت بمتابعته أرسل: حالة طلبي`
+      );
       return json(res, 200, { ok: true, delivered: result, mode: 'block_new_order' });
     }
 
@@ -990,23 +1067,29 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     }
 
     if ([BUTTON_IDS.CONSENT_YES, BUTTON_IDS.CONSENT_SERVICE_ONLY, BUTTON_IDS.CONSENT_NO].includes(selection)) {
-      const consentStatus = selection === BUTTON_IDS.CONSENT_YES
-        ? 'marketing_opt_in'
-        : selection === BUTTON_IDS.CONSENT_SERVICE_ONLY
-          ? 'service_only'
-          : 'declined';
+      const consentStatus =
+        selection === BUTTON_IDS.CONSENT_YES
+          ? 'marketing_opt_in'
+          : selection === BUTTON_IDS.CONSENT_SERVICE_ONLY
+            ? 'service_only'
+            : 'declined';
+
       await upsertCustomer(rootDir, {
         phone: from,
         preferred_language: session?.preferred_language || 'ar',
         consent_status: consentStatus
       });
+
       session = await persistSession(rootDir, from, session, { currentState: 'main_menu', consentStatus });
       const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(session?.preferred_language || 'ar'));
       return json(res, 200, { ok: true, delivered: result, mode: 'main_menu' });
     }
 
     if (selection === BUTTON_IDS.SHOW_MENU || selection === BUTTON_IDS.START_ORDER) {
-      session = await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: { lastPrompt: 'root' } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'menu_roots',
+        sessionData: { lastPrompt: 'root' }
+      });
       const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
       return json(res, 200, { ok: true, delivered: result, mode: 'menu_roots' });
     }
@@ -1016,6 +1099,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const result = latest
         ? await sendWhatsAppText(rootDir, to, mapPrepStatusToCustomer(latest.status, latest.id, latest.admin_notes || ''))
         : await sendWhatsAppText(rootDir, to, 'لا يوجد طلب مفتوح حاليًا على هذا الرقم 🌿');
+
       return json(res, 200, { ok: true, delivered: result, mode: 'track' });
     }
 
@@ -1036,14 +1120,17 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
           lastPrompt: rootId === 'main_meat' ? 'meat' : rootId === 'main_chicken' ? 'status' : 'items'
         }
       });
+
       if (rootId === 'main_meat') {
         const result = await sendWhatsAppInteractive(rootDir, to, meatTypeButtons('أطباق اللحوم'));
         return json(res, 200, { ok: true, delivered: result, mode: 'meat_type' });
       }
+
       if (rootId === 'main_chicken') {
         const result = await sendWhatsAppInteractive(rootDir, to, statusButtons());
         return json(res, 200, { ok: true, delivered: result, mode: 'status_filter' });
       }
+
       const result = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, { rootId }, 0));
       return json(res, 200, { ok: true, delivered: result, mode: 'items' });
     }
@@ -1064,37 +1151,60 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: 'awaiting_items',
         sessionData: { orderDraft: { statusFilter }, itemPage: 0, lastPrompt: 'items' }
       });
+
       sessionData = readSessionData(session);
-      const result = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, {
-        rootId: sessionData.orderDraft.rootId,
-        meatType: sessionData.orderDraft.meatType,
-        statusFilter
-      }, 0));
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        itemList(
+          rootDir,
+          {
+            rootId: sessionData.orderDraft.rootId,
+            meatType: sessionData.orderDraft.meatType,
+            statusFilter
+          },
+          0
+        )
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'status_selected' });
     }
 
     if (selection.startsWith('items_page:')) {
       const page = Number(selection.split(':')[1] || 0);
       sessionData = readSessionData(session);
-      const result = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, {
-        rootId: sessionData.orderDraft.rootId,
-        meatType: sessionData.orderDraft.meatType,
-        statusFilter: sessionData.orderDraft.statusFilter
-      }, page));
+
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        itemList(
+          rootDir,
+          {
+            rootId: sessionData.orderDraft.rootId,
+            meatType: sessionData.orderDraft.meatType,
+            statusFilter: sessionData.orderDraft.statusFilter
+          },
+          page
+        )
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'items_page' });
     }
 
     if (selection.startsWith('item:')) {
       const itemId = selection.split(':')[1];
       const item = getMenuItemById(rootDir, itemId);
+
       if (!item) {
         const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الصنف المطلوب. اختر من القائمة مرة أخرى.');
         return json(res, 200, { ok: true, delivered: result, mode: 'item_missing' });
       }
+
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_quantity',
         sessionData: { pendingItemId: item.record_id, awaiting: 'quantity_text', lastPrompt: 'quantity' }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, quantityButtons(item));
       return json(res, 200, { ok: true, delivered: result, mode: 'quantity' });
     }
@@ -1103,10 +1213,12 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const [, itemId, qtyRaw] = selection.split(':');
       const quantity = Number(qtyRaw || 1);
       const item = getMenuItemById(rootDir, itemId);
+
       if (!item) {
         const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الصنف المطلوب.');
         return json(res, 200, { ok: true, delivered: result, mode: 'qty_item_missing' });
       }
+
       const newItem = {
         id: item.record_id,
         displayNameAr: item.display_name_ar || item.item_name_ar,
@@ -1116,13 +1228,21 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         lineTotalJod: Number(item.price_1_jod || 0) * quantity,
         notes: null
       };
+
       const cart = [...(sessionData.cart || []), newItem];
       const extras = getItemExtras(rootDir, item);
+
       session = await persistSession(rootDir, from, session, {
         currentState: extras.length ? 'awaiting_extra_choice' : 'reviewing_cart',
         sessionData: { cart, awaiting: extras.length ? 'extra_choice' : null }
       });
-      const result = await sendWhatsAppInteractive(rootDir, to, extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text));
+
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text)
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'cart_after_qty' });
     }
 
@@ -1133,11 +1253,17 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const selectedExtra = extras.find(extra => slugify(extra.label) === extraSlug);
       const cart = [...(sessionData.cart || [])];
       const last = cart[cart.length - 1];
+
       if (last && selectedExtra) {
         last.notes = last.notes ? `${last.notes} + ${selectedExtra.label}` : selectedExtra.label;
         last.lineTotalJod = Number(last.lineTotalJod || 0) + Number(selectedExtra.price || 0);
       }
-      session = await persistSession(rootDir, from, session, { currentState: 'reviewing_cart', sessionData: { cart, awaiting: null } });
+
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'reviewing_cart',
+        sessionData: { cart, awaiting: null }
+      });
+
       const result = await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text));
       return json(res, 200, { ok: true, delivered: result, mode: 'extra_added' });
     }
@@ -1156,19 +1282,28 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
           orderDraft: defaultDraft()
         }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(session?.preferred_language || 'ar'));
       return json(res, 200, { ok: true, delivered: result, mode: 'cart_cleared' });
     }
 
     if (selection === BUTTON_IDS.ADD_MORE) {
-      session = await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: { lastPrompt: 'root', pendingItemId: null, awaiting: null } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'menu_roots',
+        sessionData: { lastPrompt: 'root', pendingItemId: null, awaiting: null }
+      });
+
       const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
       return json(res, 200, { ok: true, delivered: result, mode: 'add_more' });
     }
 
     if (selection === BUTTON_IDS.CHECKOUT) {
-      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_day', sessionData: { lastPrompt: 'day' } });
-      const result = await sendWhatsAppInteractive(rootDir, to, dayList(config));
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'awaiting_day',
+        sessionData: { lastPrompt: 'day' }
+      });
+
+      const result = await sendWhatsAppInteractive(rootDir, to, dayList());
       return json(res, 200, { ok: true, delivered: result, mode: 'checkout_day' });
     }
 
@@ -1178,6 +1313,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: 'awaiting_slot',
         sessionData: { orderDraft: { deliveryDayIso: dayIso, deliveryDayLabel: label }, lastPrompt: 'slot' }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, slotList(config));
       return json(res, 200, { ok: true, delivered: result, mode: 'slot_prompt' });
     }
@@ -1188,7 +1324,8 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: 'awaiting_delivery_type',
         sessionData: { orderDraft: { deliverySlot: slot }, lastPrompt: 'delivery_type' }
       });
-      const result = await sendWhatsAppInteractive(rootDir, to, buildDeliveryTypeButtons());
+
+      const result = await sendWhatsAppInteractive(rootDir, to, deliveryTypeButtons());
       return json(res, 200, { ok: true, delivered: result, mode: 'delivery_type_prompt' });
     }
 
@@ -1198,6 +1335,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: deliveryType === 'pickup' ? 'awaiting_payment' : 'awaiting_sector',
         sessionData: { orderDraft: { deliveryType }, lastPrompt: deliveryType === 'pickup' ? 'payment' : 'sector' }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, deliveryType === 'pickup' ? paymentButtons() : sectorList(rootDir));
       return json(res, 200, { ok: true, delivered: result, mode: 'delivery_type_selected' });
     }
@@ -1206,14 +1344,17 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const [, sectorKey, pageRaw] = selection.split(':');
       const page = Number(pageRaw || 0);
       const group = getDeliveryGroupByKey(rootDir, sectorKey);
+
       if (!group) {
         const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على هذا القطاع. اختر من جديد.');
         return json(res, 200, { ok: true, delivered: result, mode: 'sector_error' });
       }
+
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_zone',
         sessionData: { orderDraft: { sectorKey, sectorTitle: group.group }, lastPrompt: 'zone' }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, zoneList(rootDir, sectorKey, page));
       return json(res, 200, { ok: true, delivered: result, mode: 'zone_prompt' });
     }
@@ -1221,10 +1362,12 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (selection.startsWith('zone:')) {
       const zoneId = selection.split(':')[1];
       const zone = getDeliveryZoneById(rootDir, zoneId);
+
       if (!zone) {
         const result = await sendWhatsAppText(rootDir, to, 'تعذر تحديد المنطقة المطلوبة. أعد الاختيار.');
         return json(res, 200, { ok: true, delivered: result, mode: 'zone_error' });
       }
+
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_address',
         sessionData: {
@@ -1238,7 +1381,13 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
           lastPrompt: 'address'
         }
       });
-      const result = await sendWhatsAppText(rootDir, to, `تم اختيار منطقة ${zone.zone_name_ar} ورسوم التوصيل ${money(zone.delivery_fee_jod)} 🌿\nأرسل العنوان بالتفصيل أو شارك الموقع الآن.`);
+
+      const result = await sendWhatsAppText(
+        rootDir,
+        to,
+        `تم اختيار منطقة ${zone.zone_name_ar} ورسوم التوصيل ${money(zone.delivery_fee_jod)} 🌿\nأرسل العنوان بالتفصيل أو شارك الموقع الآن.`
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'address_prompt' });
     }
 
@@ -1247,19 +1396,33 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: 'awaiting_notes_choice',
         sessionData: { orderDraft: { paymentMethod: 'cash' }, lastPrompt: 'notes' }
       });
+
       const result = await sendWhatsAppInteractive(rootDir, to, notesButtons());
       return json(res, 200, { ok: true, delivered: result, mode: 'notes_prompt' });
     }
 
     if (selection === BUTTON_IDS.NOTES_ADD) {
-      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_notes_text', sessionData: { awaiting: 'notes_text' } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'awaiting_notes_text',
+        sessionData: { awaiting: 'notes_text' }
+      });
+
       const result = await sendWhatsAppText(rootDir, to, 'اكتب الملاحظة التي تريد إضافتها على الطلب الآن.');
       return json(res, 200, { ok: true, delivered: result, mode: 'notes_text_prompt' });
     }
 
     if (selection === BUTTON_IDS.NOTES_SKIP) {
-      session = await persistSession(rootDir, from, session, { currentState: 'review_customer_summary', sessionData: { orderDraft: { notes: null }, awaiting: null } });
-      const result = await sendWhatsAppInteractive(rootDir, to, customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: null })));
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'review_customer_summary',
+        sessionData: { orderDraft: { notes: null }, awaiting: null }
+      });
+
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: null }))
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'customer_summary' });
     }
 
@@ -1270,14 +1433,18 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     }
 
     if (selection === BUTTON_IDS.EDIT_ITEMS) {
-      session = await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: { lastPrompt: 'root' } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'menu_roots',
+        sessionData: { lastPrompt: 'root' }
+      });
+
       const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
       return json(res, 200, { ok: true, delivered: result, mode: 'edit_items' });
     }
 
     if (selection === BUTTON_IDS.EDIT_SCHEDULE) {
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_day' });
-      const result = await sendWhatsAppInteractive(rootDir, to, dayList(config));
+      const result = await sendWhatsAppInteractive(rootDir, to, dayList());
       return json(res, 200, { ok: true, delivered: result, mode: 'edit_schedule' });
     }
 
@@ -1294,19 +1461,29 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     }
 
     if (selection === BUTTON_IDS.CUSTOMER_CONFIRM) {
-      const outcome = await createOrUpdateOrderFromDraft(rootDir, from, session, config);
+      const outcome = await createOrUpdateOrderFromDraft(rootDir, from, session);
       if (outcome.error) {
         const result = await sendWhatsAppText(rootDir, to, outcome.error);
         return json(res, 200, { ok: true, delivered: result, mode: 'create_order_error' });
       }
+
       await notifyAdminsNewOrder(rootDir, outcome.order, config);
-      const result = await sendWhatsAppText(rootDir, to, `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم المتابعة الداخلي: ${outcome.order.id}\nسنثبت الطلب بعد اعتماد الإدارة ونرسل لك الحالة مباشرة هنا.`);
+      const result = await sendWhatsAppText(
+        rootDir,
+        to,
+        `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم المتابعة الداخلي: ${outcome.order.id}\nسنثبت الطلب بعد اعتماد الإدارة ونرسل لك الحالة مباشرة هنا.`
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'sent_to_admin' });
     }
 
     if (type === 'location' && sessionData.awaiting === 'address') {
       const locationText = buildLocationText(message);
-      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_payment', sessionData: { orderDraft: { address: locationText }, awaiting: null } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'awaiting_payment',
+        sessionData: { orderDraft: { address: locationText }, awaiting: null }
+      });
+
       const result = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
       return json(res, 200, { ok: true, delivered: result, mode: 'address_location_saved' });
     }
@@ -1314,10 +1491,12 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (type === 'text' && sessionData.awaiting === 'quantity_text') {
       const quantity = Number(text);
       const item = getMenuItemById(rootDir, sessionData.pendingItemId);
+
       if (!quantity || quantity < 1 || !item) {
         const result = await sendWhatsAppText(rootDir, to, 'أرسل رقم كمية صحيحًا مثل 2 أو 5.');
         return json(res, 200, { ok: true, delivered: result, mode: 'quantity_invalid' });
       }
+
       const newItem = {
         id: item.record_id,
         displayNameAr: item.display_name_ar || item.item_name_ar,
@@ -1327,22 +1506,46 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         lineTotalJod: Number(item.price_1_jod || 0) * quantity,
         notes: null
       };
+
       const cart = [...(sessionData.cart || []), newItem];
       const extras = getItemExtras(rootDir, item);
-      session = await persistSession(rootDir, from, session, { currentState: extras.length ? 'awaiting_extra_choice' : 'reviewing_cart', sessionData: { cart, awaiting: extras.length ? 'extra_choice' : null } });
-      const result = await sendWhatsAppInteractive(rootDir, to, extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text));
+
+      session = await persistSession(rootDir, from, session, {
+        currentState: extras.length ? 'awaiting_extra_choice' : 'reviewing_cart',
+        sessionData: { cart, awaiting: extras.length ? 'extra_choice' : null }
+      });
+
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text)
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'quantity_text_saved' });
     }
 
     if (type === 'text' && sessionData.awaiting === 'address') {
-      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_payment', sessionData: { orderDraft: { address: text }, awaiting: null } });
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'awaiting_payment',
+        sessionData: { orderDraft: { address: text }, awaiting: null }
+      });
+
       const result = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
       return json(res, 200, { ok: true, delivered: result, mode: 'address_saved' });
     }
 
     if (type === 'text' && sessionData.awaiting === 'notes_text') {
-      session = await persistSession(rootDir, from, session, { currentState: 'review_customer_summary', sessionData: { orderDraft: { notes: text }, awaiting: null } });
-      const result = await sendWhatsAppInteractive(rootDir, to, customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: text })));
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'review_customer_summary',
+        sessionData: { orderDraft: { notes: text }, awaiting: null }
+      });
+
+      const result = await sendWhatsAppInteractive(
+        rootDir,
+        to,
+        customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: text }))
+      );
+
       return json(res, 200, { ok: true, delivered: result, mode: 'notes_saved' });
     }
 
@@ -1354,14 +1557,15 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons());
     return json(res, 200, { ok: true, delivered: result, mode: 'fallback_main' });
-
   } catch (error) {
     console.error('WEBHOOK_FATAL_ERROR', error);
+
     try {
       const body = await parseBody(req).catch(() => ({}));
       const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
       const message = value.messages?.[0];
       const to = normalizePhone(message?.from || '').replace(/^\+/, '');
+
       if (to) {
         await sendWhatsAppPayload(to, {
           type: 'text',
@@ -1371,6 +1575,11 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     } catch (fallbackError) {
       console.error('WEBHOOK_FALLBACK_SEND_ERROR', fallbackError);
     }
-    return json(res, 200, { ok: false, recovered: true, message: error.message });
+
+    return json(res, 200, {
+      ok: false,
+      recovered: true,
+      message: error.message
+    });
   }
 }
