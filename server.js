@@ -3,13 +3,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { loadAppConfig, isWithinOrderWindow, normalizePhone, json, text, sendFile, readJsonFile, writeJsonFile, parseBody, parseCookies } from './src/utils/core.js';
+import {
+  loadAppConfig,
+  isWithinOrderWindow,
+  normalizePhone,
+  json,
+  text,
+  sendFile,
+  readJsonFile,
+  parseBody
+} from './src/utils/core.js';
 import { getMenuData, getMenuSummary, getMetaCatalog, searchMenu, getSections } from './src/services/menu.service.js';
 import { buildHomepageData, buildSeoConfig } from './src/services/site.service.js';
 import { getDeliveryZoneById } from './src/services/delivery.service.js';
 import { sendMetaEvent } from './src/services/meta-capi.service.js';
 import { whatsappVerify, processWhatsAppWebhook } from './src/services/whatsapp.service.js';
-import { createOrder, getOrderById, findOrdersByPhone, updateOrderStatus, createLead, generateNextOrderCode } from './src/services/storage.service.js';
+import {
+  createOrder,
+  getOrderById,
+  findOrdersByPhone,
+  updateOrderStatus,
+  createLead,
+  generateNextOrderCode
+} from './src/services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,7 +35,8 @@ const appConfig = loadAppConfig(path.join(rootDir, 'config.app.json'));
 
 const server = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const safeHost = req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:3000';
+    const url = new URL(req?.url || '/', `http://${safeHost}`);
     const pathname = url.pathname;
     const method = req.method || 'GET';
 
@@ -117,6 +134,7 @@ const server = http.createServer(async (req, res) => {
       const zone = body.deliveryZoneId ? getDeliveryZoneById(rootDir, body.deliveryZoneId) : null;
       const subtotal = items.reduce((sum, item) => sum + Number(item.lineTotalJod || item.line_total_jod || item.total || 0), 0);
       const deliveryFee = deliveryType === 'pickup' ? 0 : Number(zone?.delivery_fee_jod || body.deliveryFeeJod || 0);
+
       const order = await createOrder(rootDir, {
         id: await generateNextOrderCode(rootDir),
         customerName: body.customerName || 'عميل مطبخ اليوم',
@@ -182,6 +200,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/orders/status' && method === 'POST') {
       const body = await parseBody(req);
       const updated = await updateOrderStatus(rootDir, body.orderId, body.status, body.statusLabelAr || body.status);
+
       if (!updated) {
         return json(res, 404, { ok: false, message: 'الطلب غير موجود.' });
       }
@@ -208,7 +227,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/webhooks/whatsapp' && method === 'POST') {
-      return processWhatsAppWebhook(req, res, appConfig, rootDir);
+      return processWhatsAppWebhook(rootDir, req, res, appConfig);
     }
 
     if (pathname === '/api/meta/event' && method === 'POST') {
@@ -217,12 +236,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, result });
     }
 
-    // Redirect old root-json expectations to human homepage while keeping status endpoint public.
     if (pathname === '/healthz') {
-      return json(res, 200, { ok: true, service: 'matbakh-alyoum-smart-bot', time: new Date().toISOString() });
+      return json(res, 200, {
+        ok: true,
+        service: 'matbakh-alyoum-smart-bot',
+        time: new Date().toISOString()
+      });
     }
 
-    // Static files
     let filePath = path.join(publicDir, pathname === '/' ? 'index.html' : pathname);
     if (!filePath.startsWith(publicDir)) {
       return text(res, 403, 'Forbidden');
@@ -241,7 +262,13 @@ const server = http.createServer(async (req, res) => {
     return sendFile(res, path.join(publicDir, '404.html'), '.html');
   } catch (error) {
     console.error(error);
-    return json(res, 500, { ok: false, message: 'حدث خطأ داخلي غير متوقع.', error: error.message });
+    if (res && typeof res.writeHead === 'function') {
+      return json(res, 500, {
+        ok: false,
+        message: 'حدث خطأ داخلي غير متوقع.',
+        error: error.message
+      });
+    }
   }
 });
 
