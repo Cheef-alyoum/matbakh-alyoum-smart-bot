@@ -151,51 +151,107 @@ function shortButton(title) {
   return String(title).slice(0, 20);
 }
 
+function normalizeUserText(value = '') {
+  return String(value || '')
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, '')
+    .replace(/🌿|✅|🚚|👨‍🍳/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function readIncomingSelection(message, rootDir = '') {
   if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
     return message.interactive.button_reply?.id || '';
   }
+
   if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
     return message.interactive.list_reply?.id || '';
   }
 
-  const text = String(message.text?.body || '').trim();
-  const simple = text.replace(/🌿|✅|🚚|👨‍🍳/g, '').trim();
+  const rawText = String(message.text?.body || '').trim();
+  const simple = normalizeUserText(rawText);
 
-  const map = {
-    العربية: BUTTON_IDS.AR,
+  if (!simple) return '';
+
+  const exactMap = {
+    العربيه: BUTTON_IDS.AR,
+    عربي: BUTTON_IDS.AR,
+    arabic: BUTTON_IDS.AR,
     english: BUTTON_IDS.EN,
-    أوافق: BUTTON_IDS.CONSENT_YES,
-    'خدمة فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
-    'لا أوافق': BUTTON_IDS.CONSENT_NO,
+    انجليزي: BUTTON_IDS.EN,
+    انجليزيه: BUTTON_IDS.EN,
+    اوافق: BUTTON_IDS.CONSENT_YES,
+    خدمه: BUTTON_IDS.CONSENT_SERVICE_ONLY,
+    'خدمه فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
+    'لا اوافق': BUTTON_IDS.CONSENT_NO,
     اطلب: BUTTON_IDS.START_ORDER,
-    'ابدأ الطلب': BUTTON_IDS.START_ORDER,
+    'ابدا الطلب': BUTTON_IDS.START_ORDER,
+    'طلب جديد': BUTTON_IDS.START_ORDER,
     المنيو: BUTTON_IDS.SHOW_MENU,
+    القائمه: BUTTON_IDS.SHOW_MENU,
+    الاصناف: BUTTON_IDS.SHOW_MENU,
     تتبع: BUTTON_IDS.TRACK_ORDER,
+    متابعه: BUTTON_IDS.TRACK_ORDER,
     موظف: BUTTON_IDS.HUMAN,
     'موظف مباشر': BUTTON_IDS.HUMAN,
-    إضافة: BUTTON_IDS.ADD_MORE,
-    متابعة: BUTTON_IDS.CHECKOUT,
-    إلغاء: BUTTON_IDS.CLEAR_CART,
+    اضافه: BUTTON_IDS.ADD_MORE,
+    'متابعه السله': BUTTON_IDS.CHECKOUT,
+    'متابعه الطلب': BUTTON_IDS.TRACK_ORDER,
+    الغاء: BUTTON_IDS.CLEAR_CART,
     توصيل: BUTTON_IDS.DELIVERY,
     استلام: BUTTON_IDS.PICKUP,
     كاش: BUTTON_IDS.PAY_CASH,
     ملاحظات: BUTTON_IDS.NOTES_ADD,
     'بدون ملاحظات': BUTTON_IDS.NOTES_SKIP,
-    تأكيد: BUTTON_IDS.CUSTOMER_CONFIRM,
+    تاكيد: BUTTON_IDS.CUSTOMER_CONFIRM,
     تعديل: BUTTON_IDS.CUSTOMER_EDIT,
     خروج: BUTTON_IDS.CUSTOMER_EXIT,
-    الأصناف: BUTTON_IDS.EDIT_ITEMS,
+    'الاصناف التعديل': BUTTON_IDS.EDIT_ITEMS,
     الموعد: BUTTON_IDS.EDIT_SCHEDULE,
-    المنطقة: BUTTON_IDS.EDIT_ZONE,
+    المنطقه: BUTTON_IDS.EDIT_ZONE,
     الملاحظات: BUTTON_IDS.EDIT_NOTES
   };
 
-  if (map[simple.toLowerCase()]) return map[simple.toLowerCase()];
-  if (map[simple]) return map[simple];
+  if (exactMap[simple]) return exactMap[simple];
 
-  if (rootDir && simple) {
-    const directItem = getMenuItemById(rootDir, simple);
+  if (
+    /(المنيو|القائمه|الاصناف|عرض المنيو|اعرض المنيو)/.test(simple) ||
+    /(^|\s)(menu|show menu|catalog)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.SHOW_MENU;
+  }
+
+  if (
+    /(اطلب|ابدا الطلب|طلب جديد|بدي اطلب|ابغى اطلب|اريد الطلب|اريد اطلب)/.test(simple) ||
+    /(^|\s)(order|start order|new order|buy)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.START_ORDER;
+  }
+
+  if (
+    /(تتبع|حاله|متابعه|حاله طلبي|وين طلبي|طلبي وين|وين الطلب)/.test(simple) ||
+    /(^|\s)(track|tracking|track order|status|where is my order)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.TRACK_ORDER;
+  }
+
+  if (
+    /(موظف|خدمه العملاء|الدعم|تواصل مباشر)/.test(simple) ||
+    /(^|\s)(agent|human|support|customer service)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.HUMAN;
+  }
+
+  if (rootDir && rawText) {
+    const directItem = getMenuItemById(rootDir, rawText) || getMenuItemById(rootDir, simple);
     if (directItem) return `item:${directItem.record_id}`;
   }
 
@@ -666,10 +722,42 @@ function adminOpsButtons(orderId) {
 }
 
 function textIntent(text = '') {
-  const normalized = String(text || '').trim();
+  const normalized = normalizeUserText(text);
+
   if (!normalized) return 'empty';
-  if (/^(مرحبا|السلام عليكم|اهلا|أهلا|hello|hi)$/i.test(normalized)) return 'welcome';
-  if (TRACK_TERMS.test(normalized)) return 'track';
+
+  if (/^(مرحبا|السلام عليكم|السلام عليكم ورحمه الله|اهلا|اهلا وسهلا|هلا|hello|hi|hey)\b/.test(normalized)) {
+    return 'welcome';
+  }
+
+  if (
+    /(المنيو|القائمه|الاصناف|عرض المنيو|اعرض المنيو)/.test(normalized) ||
+    /(^|\s)(menu|show menu|catalog)(\s|$)/.test(normalized)
+  ) {
+    return 'menu';
+  }
+
+  if (
+    /(اطلب|ابدا الطلب|طلب جديد|بدي اطلب|ابغى اطلب|اريد الطلب|اريد اطلب)/.test(normalized) ||
+    /(^|\s)(order|start order|new order|buy)(\s|$)/.test(normalized)
+  ) {
+    return 'order';
+  }
+
+  if (
+    /(موظف|خدمه العملاء|الدعم|تواصل مباشر)/.test(normalized) ||
+    /(^|\s)(agent|human|support|customer service)(\s|$)/.test(normalized)
+  ) {
+    return 'human';
+  }
+
+  if (
+    TRACK_TERMS.test(text) ||
+    /(تتبع|حاله|متابعه|حاله طلبي|وين طلبي|طلبي وين|وين الطلب)/.test(normalized)
+  ) {
+    return 'track';
+  }
+
   return 'text';
 }
 
@@ -1151,7 +1239,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: result, mode: 'block_new_order' });
     }
 
-    if (selection === BUTTON_IDS.HUMAN) {
+    if (selection === BUTTON_IDS.HUMAN || textMode === 'human') {
       const links = buildTextLinks(config, req);
       const result = await sendWhatsAppText(rootDir, to, `يسعدنا خدمتك 🌿\nيمكنك التواصل مع موظف مباشر على الرقم: ${links.phone}`);
       return json(res, 200, { ok: true, delivered: result, mode: 'human' });
@@ -1190,7 +1278,12 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: result, mode: 'main_menu' });
     }
 
-    if (selection === BUTTON_IDS.SHOW_MENU || selection === BUTTON_IDS.START_ORDER) {
+    if (
+      selection === BUTTON_IDS.SHOW_MENU ||
+      selection === BUTTON_IDS.START_ORDER ||
+      textMode === 'menu' ||
+      textMode === 'order'
+    ) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'menu_roots',
         sessionData: { lastPrompt: 'root' }
