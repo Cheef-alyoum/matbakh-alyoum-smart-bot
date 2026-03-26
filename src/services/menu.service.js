@@ -2,35 +2,28 @@ import path from 'node:path';
 import { readJsonFile, slugify } from '../utils/core.js';
 
 const ROOT_DEFINITIONS = [
-  { id: 'chicken', title: 'قسم الدجاج', description: 'أطباق على الدجاج', kind: 'hierarchy' },
-  { id: 'meat', title: 'قسم اللحوم', description: 'بلدي أو روماني', kind: 'hierarchy' },
-  { id: 'mahashi', title: 'عالم المحاشي', description: 'مطبوخ أو جاهز للطبخ', kind: 'hierarchy' },
-  { id: 'yalangi', title: 'عالم اليالنجي', description: 'مطبوخ أو جاهز للطبخ', kind: 'hierarchy' },
-  { id: 'maftoul', title: 'عالم المفتول', description: 'مفتول وإضافاته', kind: 'hierarchy' },
-  { id: 'individual', title: 'أطباق النفرات', description: 'طلبات شخصين', kind: 'direct' },
-  { id: 'salads', title: 'السلطات', description: 'أطباق جانبية', kind: 'direct' },
-  { id: 'soups', title: 'الشوربات', description: '300 مل', kind: 'direct' },
-  { id: 'fried', title: 'المقالي', description: 'مقليات جاهزة', kind: 'direct' },
-  { id: 'frozen', title: 'المفرزات', description: 'مفرزات جاهزة', kind: 'direct' },
-  { id: 'bundles', title: 'العروض', description: 'عروض مجمعة', kind: 'hierarchy' },
-  { id: 'catering', title: 'الولائم', description: 'خاروف أو نصف أو ضلعة', kind: 'hierarchy' }
+  { id: 'bundles', title: '🍲 الأطباق المطبوخة', description: 'محاشي، دجاج، لحوم، طبخات، سلطات، شوربات', kind: 'hierarchy' },
+  { id: 'catering', title: '🍖 الولائم والعزائم', description: 'خاروف كامل، نصف خاروف، ضلعة', kind: 'hierarchy' },
+  { id: 'frozen', title: '❄️ المفرزات', description: 'أصناف مفرزة جاهزة للحفظ', kind: 'direct' }
 ];
 
 const ROOT_ALIASES = {
-  main_chicken: 'chicken',
-  chicken: 'chicken',
-  main_meat: 'meat',
-  meat: 'meat',
-  mahashi: 'mahashi',
-  yalangi: 'yalangi',
-  maftoul: 'maftoul',
-  individual: 'individual',
-  salads: 'salads',
-  soups: 'soups',
-  fried: 'fried',
-  frozen: 'frozen',
+  cooked: 'bundles',
   bundles: 'bundles',
-  catering: 'catering'
+  bundle: 'bundles',
+  chicken: 'bundles',
+  main_chicken: 'bundles',
+  meat: 'bundles',
+  main_meat: 'bundles',
+  mahashi: 'bundles',
+  yalangi: 'bundles',
+  maftoul: 'bundles',
+  individual: 'bundles',
+  salads: 'bundles',
+  soups: 'bundles',
+  fried: 'bundles',
+  catering: 'catering',
+  frozen: 'frozen'
 };
 
 const STATUS_LABELS = {
@@ -40,6 +33,14 @@ const STATUS_LABELS = {
   made_to_order: 'حسب الطلب',
   bundle: 'عرض'
 };
+
+const CATEGORY_ORDER = {
+  bundles: ['🥬 المحاشي', '🍗 أطباق الدجاج', '🥩 أطباق اللحوم', '🍛 الطبخات البيتية', '🥗 السلطات', '🍲 الشوربات'],
+  catering: ['خاروف كامل', 'نصف خاروف', 'ضلعة'],
+  frozen: ['❄️ المفرزات']
+};
+
+const TYPE_ORDER = ['بلدي', 'روماني', 'مستورد', 'دجاج'];
 
 function normalizeArabic(value = '') {
   return String(value || '')
@@ -65,6 +66,16 @@ function uniqueBy(items, keyFn) {
   return result;
 }
 
+function sortByReference(values = [], reference = []) {
+  const indexMap = new Map(reference.map((value, index) => [normalizeArabic(value), index]));
+  return [...values].sort((a, b) => {
+    const aIndex = indexMap.has(normalizeArabic(a)) ? indexMap.get(normalizeArabic(a)) : 999;
+    const bIndex = indexMap.has(normalizeArabic(b)) ? indexMap.get(normalizeArabic(b)) : 999;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return String(a || '').localeCompare(String(b || ''), 'ar');
+  });
+}
+
 export function resolveRootId(rootId = '') {
   return ROOT_ALIASES[String(rootId || '').trim()] || String(rootId || '').trim();
 }
@@ -86,7 +97,7 @@ export function getMenuSummary(rootDir) {
 }
 
 export function getSections(rootDir) {
-  const items = getMenuData(rootDir);
+  const items = getMenuData(rootDir).filter(item => item.menu_root !== 'modifiers');
   const map = new Map();
   for (const item of items) {
     if (!map.has(item.section_ar)) map.set(item.section_ar, []);
@@ -123,7 +134,7 @@ export function getMenuItemById(rootDir, itemId) {
 
 export function searchMenu(rootDir, q) {
   const query = normalizeArabic(q);
-  const items = getMenuData(rootDir);
+  const items = getMenuData(rootDir).filter(item => item.menu_root !== 'modifiers');
   if (!query) return items.slice(0, 20);
 
   return items.filter(item => {
@@ -146,44 +157,19 @@ function baseItemsForRoot(rootDir, rootId) {
   const items = getMenuData(rootDir);
   const resolved = resolveRootId(rootId);
 
-  switch (resolved) {
-    case 'chicken':
-      return items.filter(item =>
-        item.section_ar === 'الأطباق الرئيسية' &&
-        item.category_ar === 'على الدجاج' &&
-        item.type_ar === 'دجاج'
-      );
-    case 'meat':
-      return items.filter(item =>
-        item.section_ar === 'الأطباق الرئيسية' &&
-        (
-          /لحم/.test(item.category_ar || '') ||
-          item.category_ar === 'أطباق باللحم'
-        )
-      );
-    case 'mahashi':
-      return items.filter(item => item.section_ar === 'عالم المحاشي');
-    case 'yalangi':
-      return items.filter(item => item.section_ar === 'عالم اليالنجي');
-    case 'maftoul':
-      return items.filter(item => item.section_ar === 'عالم المفتول' && item.unit_ar !== 'إضافة');
-    case 'individual':
-      return items.filter(item => item.section_ar === 'أطباق نفرات');
-    case 'salads':
-      return items.filter(item => item.section_ar === 'السلطات');
-    case 'soups':
-      return items.filter(item => item.section_ar === 'الشوربات');
-    case 'fried':
-      return items.filter(item => item.section_ar === 'المقالي');
-    case 'frozen':
-      return items.filter(item => item.section_ar === 'المفرزات');
-    case 'bundles':
-      return items.filter(item => item.section_ar === 'العروض المجمعة');
-    case 'catering':
-      return items.filter(item => item.section_ar === 'ولائم ومحاشي الذبائح');
-    default:
-      return [];
+  if (resolved === 'bundles') {
+    return items.filter(item => item.menu_root === 'bundles');
   }
+
+  if (resolved === 'catering') {
+    return items.filter(item => item.menu_root === 'catering');
+  }
+
+  if (resolved === 'frozen') {
+    return items.filter(item => item.menu_root === 'frozen');
+  }
+
+  return [];
 }
 
 function mapStatusFilter(statusFilter = '') {
@@ -206,15 +192,10 @@ function mapTypeFilter(typeValue = '') {
   return typeValue;
 }
 
-function statusMatches(item, statusFilter, rootId) {
+function statusMatches(item, statusFilter) {
   const wanted = mapStatusFilter(statusFilter);
   if (!wanted) return true;
-  const resolved = resolveRootId(rootId);
-
-  if (wanted === 'ready') {
-    return item.status === 'ready' || (resolved === 'chicken' || resolved === 'meat' || resolved === 'individual' || resolved === 'catering' ? item.status === 'made_to_order' : false);
-  }
-
+  if (wanted === 'ready') return item.status === 'ready' || item.status === 'made_to_order';
   if (wanted === 'raw') return item.status === 'raw';
   if (wanted === 'frozen') return item.status === 'frozen';
   if (wanted === 'made_to_order') return item.status === 'made_to_order';
@@ -237,7 +218,7 @@ export function getItemsForRoot(rootDir, filters = {}) {
   }
 
   if (filterObject.statusFilter) {
-    items = items.filter(item => statusMatches(item, filterObject.statusFilter, rootId));
+    items = items.filter(item => statusMatches(item, filterObject.statusFilter));
   }
 
   return items;
@@ -255,22 +236,25 @@ export function getRootById(rootId) {
 }
 
 export function getRootCategoryOptions(rootDir, rootId, filters = {}) {
-  const items = getItemsForRoot(rootDir, { rootId, statusFilter: filters.statusFilter, meatType: filters.meatType });
-  return uniqueBy(items.filter(item => item.category_ar), item => item.category_ar).map(item => ({
-    value: item.category_ar,
-    label: item.category_ar,
-    slug: slugify(item.category_ar),
-    count: items.filter(candidate => candidate.category_ar === item.category_ar).length
+  const resolved = resolveRootId(rootId);
+  const items = getItemsForRoot(rootDir, { rootId: resolved, statusFilter: filters.statusFilter, meatType: filters.meatType });
+  const values = uniqueBy(items.filter(item => item.category_ar), item => item.category_ar).map(item => item.category_ar);
+  return sortByReference(values, CATEGORY_ORDER[resolved] || []).map(value => ({
+    value,
+    label: value,
+    slug: slugify(value),
+    count: items.filter(candidate => normalizeArabic(candidate.category_ar) === normalizeArabic(value)).length
   }));
 }
 
 export function getRootTypeOptions(rootDir, rootId, filters = {}) {
   const items = getItemsForRoot(rootDir, { rootId, categoryFilter: filters.categoryFilter, statusFilter: filters.statusFilter });
-  return uniqueBy(items.filter(item => item.type_ar), item => item.type_ar).map(item => ({
-    value: item.type_ar,
-    label: item.type_ar,
-    slug: slugify(item.type_ar),
-    count: items.filter(candidate => candidate.type_ar === item.type_ar).length
+  const values = uniqueBy(items.filter(item => item.type_ar), item => item.type_ar).map(item => item.type_ar);
+  return sortByReference(values, TYPE_ORDER).map(value => ({
+    value,
+    label: value,
+    slug: slugify(value),
+    count: items.filter(candidate => normalizeArabic(candidate.type_ar) === normalizeArabic(value)).length
   }));
 }
 
@@ -293,10 +277,11 @@ export function getDisplayUnit(item) {
   if (/شخص/.test(unit)) return 'طلب';
   if (/حبه|حبات/.test(unit)) return 'حبة';
   if (/صحن/.test(unit)) return 'صحن';
+  if (/300 ml/i.test(unit)) return '300 ml';
   if (/عرض/.test(unit)) return 'عرض';
-  if (/خاروف/.test(unit)) return 'خاروف';
+  if (/خاروف/.test(unit) && !/نصف/.test(unit)) return 'خاروف';
   if (/نصف خاروف/.test(unit)) return 'نصف خاروف';
-  if (/ضلعه/.test(normalizeArabic(unit))) return 'ضلعة';
+  if (/ضلعه|ضلعة/.test(normalizeArabic(unit))) return 'ضلعة';
   return unit;
 }
 
@@ -308,42 +293,22 @@ export function getItemExtras(rootDir, item) {
 
   if (/مسخن/.test(title)) {
     const bread = items.find(candidate => /رغيف مسخن إضافي|رغيف مسخن اضافي/.test(candidate.display_name_ar || candidate.item_name_ar || ''));
-    if (bread) extras.push({
-      id: bread.record_id,
-      label: bread.display_name_ar || bread.item_name_ar,
-      price: Number(bread.price_1_jod || 0)
-    });
+    if (bread) {
+      extras.push({
+        id: bread.record_id,
+        label: bread.display_name_ar || bread.item_name_ar,
+        price: Number(bread.price_1_jod || 0)
+      });
+    }
   }
 
   if (/مفتول/.test(title)) {
     const vegetables = items.find(candidate => /إضافة خضروات للمفتول|اضافه خضروات للمفتول/.test(candidate.display_name_ar || candidate.item_name_ar || ''));
-    const soup = items.find(candidate => /شوربة المفتول|شوربه المفتول/.test(candidate.display_name_ar || candidate.item_name_ar || ''));
     if (vegetables) {
       extras.push({
         id: vegetables.record_id,
         label: vegetables.display_name_ar || vegetables.item_name_ar,
         price: Number(vegetables.price_1_jod || 0)
-      });
-    }
-    if (soup) {
-      extras.push({
-        id: soup.record_id,
-        label: soup.display_name_ar || soup.item_name_ar,
-        price: Number(soup.price_1_jod || 0)
-      });
-    }
-  }
-
-  if (/مع اضافات|مع إضافات/.test(title)) {
-    const candidateExtras = items.filter(candidate =>
-      candidate.section_ar === item.section_ar &&
-      candidate.category_ar === 'إضافات'
-    );
-    for (const extra of candidateExtras) {
-      extras.push({
-        id: extra.record_id,
-        label: extra.display_name_ar || extra.item_name_ar,
-        price: Number(extra.price_1_jod || 0)
       });
     }
   }
