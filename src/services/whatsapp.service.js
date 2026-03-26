@@ -127,8 +127,8 @@ function money(value) {
   return `${Number(value || 0).toFixed(3)} د.أ`;
 }
 
-function shortButton(title) {
-  return String(title || '').trim().slice(0, 20);
+function shortButton(title, max = 20) {
+  return String(title || '').trim().slice(0, max);
 }
 
 function normalizeUserText(value = '') {
@@ -552,12 +552,89 @@ function deliveryTypeButtons() {
   };
 }
 
+function compactRegionTitle(value = '', max = 24) {
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*[-–—]\s*/g, ' - ')
+    .trim();
+
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trim()}…`;
+}
+
+function normalizeSectorLabel(group = {}) {
+  const raw = String(group.title || group.group || '').trim();
+
+  const directMap = new Map([
+    ['شمال عمان', 'شمال عمّان'],
+    ['جنوب عمان', 'جنوب عمّان'],
+    ['شرق عمان', 'شرق عمّان'],
+    ['غرب عمان', 'غرب عمّان'],
+    ['شمال عمّان', 'شمال عمّان'],
+    ['جنوب عمّان', 'جنوب عمّان'],
+    ['شرق عمّان', 'شرق عمّان'],
+    ['غرب عمّان', 'غرب عمّان'],
+    ['الزرقاء', 'الزرقاء'],
+    ['السلط', 'السلط'],
+    ['جرش', 'جرش'],
+    ['عجلون', 'عجلون'],
+    ['الأغوار الوسطى', 'الأغوار الوسطى']
+  ]);
+
+  if (directMap.has(raw)) return directMap.get(raw);
+
+  const normalized = raw
+    .replace(/محافظة/g, '')
+    .replace(/منطقة/g, '')
+    .replace(/قطاع/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (/شمال.*عمان|عمان.*شمال/i.test(normalized)) return 'شمال عمّان';
+  if (/جنوب.*عمان|عمان.*جنوب/i.test(normalized)) return 'جنوب عمّان';
+  if (/شرق.*عمان|عمان.*شرق/i.test(normalized)) return 'شرق عمّان';
+  if (/غرب.*عمان|عمان.*غرب/i.test(normalized)) return 'غرب عمّان';
+  if (/زرقاء/.test(normalized)) return 'الزرقاء';
+  if (/سلط/.test(normalized)) return 'السلط';
+  if (/جرش/.test(normalized)) return 'جرش';
+  if (/عجلون/.test(normalized)) return 'عجلون';
+  if (/اغوار|أغوار/.test(normalized)) return 'الأغوار الوسطى';
+
+  return compactRegionTitle(normalized || 'القطاع');
+}
+
+function zoneTitleShort(zone = {}) {
+  const raw = String(zone.zone_name_ar || '').trim();
+
+  const replacements = [
+    [/شفا بدران ابو نصير جبيهة/gi, 'شفا بدران / أبو نصير'],
+    [/شفا بدران\s*\/?\s*ابو نصير\s*\/?\s*جبيهة/gi, 'شفا بدران / أبو نصير'],
+    [/عبدالله غوشة/gi, 'عبدالله غوشة'],
+    [/شارع الجامعة/gi, 'شارع الجامعة'],
+    [/الدوار السابع/gi, 'السابع'],
+    [/الدوار الخامس/gi, 'الخامس']
+  ];
+
+  let text = raw;
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement);
+  }
+
+  return compactRegionTitle(text || 'المنطقة');
+}
+
+function zoneDescription(zone = {}) {
+  const fee = money(zone.delivery_fee_jod || 0);
+  const fullName = String(zone.zone_name_ar || 'المنطقة').trim();
+  return `${fullName} • رسوم ${fee}`.slice(0, 72);
+}
+
 function sectorList(rootDir) {
   const groups = getDeliveryGroupList(rootDir);
   const rows = paginateRows(
     groups.map(group => ({
       id: `sector:${group.key}:0`,
-      title: shortButton(group.title),
+      title: shortButton(normalizeSectorLabel(group), 24),
       description: `${group.count} منطقة`
     })),
     0,
@@ -566,9 +643,9 @@ function sectorList(rootDir) {
   );
 
   return listMessage(
-    'اختر القطاع أو المحافظة أولًا 🌿',
-    'القطاعات',
-    'القطاعات',
+    'اختر المنطقة الرئيسية أولًا 🌿',
+    'المناطق',
+    'المناطق الرئيسية',
     rows
   );
 }
@@ -579,8 +656,8 @@ function zoneList(rootDir, sectorKey, page = 0) {
   const rows = paginateRows(
     zones.map(zone => ({
       id: `zone:${zone.zone_id}`,
-      title: shortButton(zone.zone_name_ar),
-      description: `رسوم ${money(zone.delivery_fee_jod)}`
+      title: shortButton(zoneTitleShort(zone), 24),
+      description: zoneDescription(zone)
     })),
     page,
     9,
@@ -588,9 +665,9 @@ function zoneList(rootDir, sectorKey, page = 0) {
   );
 
   return listMessage(
-    `اختر المنطقة داخل ${group?.group || 'القطاع'} 🌿`,
+    `اختر المنطقة داخل ${normalizeSectorLabel(group)} 🌿`,
     'المناطق',
-    group?.group || 'المناطق',
+    normalizeSectorLabel(group),
     rows
   );
 }
