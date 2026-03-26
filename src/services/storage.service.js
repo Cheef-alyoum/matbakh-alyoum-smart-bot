@@ -28,6 +28,70 @@ function mapConsentToFlags(consentStatus = 'service_only') {
   };
 }
 
+function getJordanParts(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Amman',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+
+  const parts = formatter.formatToParts(date);
+  const year = Number(parts.find(p => p.type === 'year')?.value || 0);
+  const month = Number(parts.find(p => p.type === 'month')?.value || 0);
+  const day = Number(parts.find(p => p.type === 'day')?.value || 0);
+
+  if (!year || !month || !day) return null;
+  return { year, month, day };
+}
+
+function jordanDayKey(value = new Date()) {
+  const parts = getJordanParts(value);
+  if (!parts) return '';
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+function jordanDayNumber(value = new Date()) {
+  const parts = getJordanParts(value);
+  if (!parts) return null;
+  return Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day) / 86400000);
+}
+
+function isWithinJordanPeriod(value, period = 'today', referenceDate = new Date()) {
+  const itemParts = getJordanParts(value);
+  const refParts = getJordanParts(referenceDate);
+
+  if (!itemParts || !refParts) return false;
+
+  if (period === 'today') {
+    return (
+      itemParts.year === refParts.year &&
+      itemParts.month === refParts.month &&
+      itemParts.day === refParts.day
+    );
+  }
+
+  if (period === 'month') {
+    return (
+      itemParts.year === refParts.year &&
+      itemParts.month === refParts.month
+    );
+  }
+
+  if (period === 'week') {
+    const itemNum = jordanDayNumber(value);
+    const refNum = jordanDayNumber(referenceDate);
+    if (itemNum == null || refNum == null) return false;
+    const diff = refNum - itemNum;
+    return diff >= 0 && diff <= 6;
+  }
+
+  return false;
+}
+
 async function upsertCustomerInternal(rootDir, payload) {
   const row = {
     phone: payload.phone,
@@ -221,10 +285,12 @@ export async function getOrderItems(rootDir, orderId) {
 
 export async function findOrdersByPhone(rootDir, phone) {
   if (isSupabaseEnabled()) {
-    return selectRows('orders', { phone }, { orderBy: 'created_at', ascending: false, limit: 20 });
+    return selectRows('orders', { phone }, { orderBy: 'created_at', ascending: false, limit: 200 });
   }
   const orders = loadCollection(rootDir, 'orders');
-  return orders.filter(order => order.phone === phone).sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0));
+  return orders
+    .filter(order => order.phone === phone)
+    .sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0));
 }
 
 export async function getOrdersByStatus(rootDir, status, limit = 20) {
@@ -233,6 +299,213 @@ export async function getOrdersByStatus(rootDir, status, limit = 20) {
   }
   const orders = loadCollection(rootDir, 'orders');
   return orders.filter(order => order.status === status).slice(0, limit);
+}
+
+export async function getAllOrders(rootDir, limit = 5000) {
+  if (isSupabaseEnabled()) {
+    return selectRows('orders', {}, { orderBy: 'created_at', ascending: false, limit });
+  }
+  return loadCollection(rootDir, 'orders')
+    .sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0))
+    .slice(0, limit);
+}
+
+export async function getAllCustomers(rootDir, limit = 5000) {
+  if (isSupabaseEnabled()) {
+    return selectRows('customers', {}, { orderBy: 'created_at', ascending: false, limit });
+  }
+  return loadCollection(rootDir, 'customers')
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, limit);
+}
+
+export async function getAllMessages(rootDir, limit = 5000) {
+  if (isSupabaseEnabled()) {
+    return selectRows('messages_log', {}, { orderBy: 'created_at', ascending: false, limit });
+  }
+  return loadCollection(rootDir, 'messages')
+    .sort((a, b) => new Date(b.created_at || b.createdAt || b.receivedAt || 0) - new Date(a.created_at || a.createdAt || a.receivedAt || 0))
+    .slice(0, limit);
+}
+
+export async function getOperationalReport(rootDir, period = 'today') {
+  const [orders, messages] = await Promise.all([
+    getAllOrders(rootDir, 5000),
+    getAllMessages(rootDir, 10000)
+  ]);
+
+  const filteredOrders = orders.filter(order => isWithinJordanPeriod(order.created_at || order.createdAt, period));
+  const filteredMessages = messages.filter(message => isWithinJordanPeriod(message.created_at || message.createdAt || message.receivedAt, period));
+
+  const byStatus = {
+    awaiting_admin_review: 0,
+    awaiting_customer_edit: 0,
+    approved: 0,
+    preparing: 0,
+    ready: 0,
+    out_for_delivery: 0,
+    delivered: 0,
+    rejected: 0
+  };
+
+  for (const order of filteredOrders) {
+    const status = order.status;
+    if (Object.prototype.hasOwnProperty.call(byStatus, status)) {
+      byStatus[status] += 1;
+    }
+  }
+
+  const deliveredSales = filteredOrders
+    .filter(order => order.status === 'delivered')
+    .reduce((sum, order) => sum + Number(order.total_jod || order.totalJod || 0), 0);
+
+  const phoneMap = new Map();
+  for (const message of filteredMessages) {
+    const phone = String(message.phone || message.from || message.to || '').trim();
+    if (!phone) continue;
+
+    if (!phoneMap.has(phone)) {
+      phoneMap.set(phone, {
+        phone,
+        total: 0,
+        inbound: 0,
+        outbound: 0,
+        last_at: null
+      });
+    }
+
+    const current = phoneMap.get(phone);
+    current.total += 1;
+    if ((message.direction || '').toLowerCase() === 'inbound') current.inbound += 1;
+    if ((message.direction || '').toLowerCase() === 'outbound') current.outbound += 1;
+
+    const ts = message.created_at || message.createdAt || message.receivedAt || null;
+    if (ts && (!current.last_at || new Date(ts) > new Date(current.last_at))) {
+      current.last_at = ts;
+    }
+  }
+
+  const phones = [...phoneMap.values()].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return String(b.last_at || '').localeCompare(String(a.last_at || ''));
+  });
+
+  const inboundCount = filteredMessages.filter(message => (message.direction || '').toLowerCase() === 'inbound').length;
+  const outboundCount = filteredMessages.filter(message => (message.direction || '').toLowerCase() === 'outbound').length;
+
+  return {
+    period,
+    day_key_jordan: jordanDayKey(new Date()),
+    orders: {
+      total: filteredOrders.length,
+      ...byStatus,
+      delivered_sales_jod: deliveredSales
+    },
+    messages: {
+      total: filteredMessages.length,
+      inbound: inboundCount,
+      outbound: outboundCount,
+      unique_phones: phones.length,
+      phones
+    }
+  };
+}
+
+export async function getCampaignAudiencePreview(rootDir, groupKey = 'all') {
+  const [customers, orders] = await Promise.all([
+    getAllCustomers(rootDir, 5000),
+    getAllOrders(rootDir, 5000)
+  ]);
+
+  const audience = new Map();
+
+  function ensurePhone(phone) {
+    const normalized = String(phone || '').trim();
+    if (!normalized) return null;
+
+    if (!audience.has(normalized)) {
+      audience.set(normalized, {
+        phone: normalized,
+        orders_count: 0,
+        total_spent_jod: 0,
+        last_order_at: null,
+        last_zone_name: null
+      });
+    }
+
+    return audience.get(normalized);
+  }
+
+  for (const customer of customers) {
+    ensurePhone(customer.phone);
+  }
+
+  for (const order of orders) {
+    const entry = ensurePhone(order.phone);
+    if (!entry) continue;
+    entry.orders_count += 1;
+    entry.total_spent_jod += Number(order.total_jod || order.totalJod || 0);
+
+    const orderTs = order.created_at || order.createdAt || null;
+    if (orderTs && (!entry.last_order_at || new Date(orderTs) > new Date(entry.last_order_at))) {
+      entry.last_order_at = orderTs;
+    }
+
+    if (order.delivery_zone_name) {
+      entry.last_zone_name = order.delivery_zone_name;
+    }
+  }
+
+  const all = [...audience.values()];
+  const now = Date.now();
+  const inactiveDays = 30;
+
+  const grouped = {
+    all,
+    returning: all.filter(item => item.orders_count >= 2),
+    new: all.filter(item => item.orders_count === 1),
+    inactive: all.filter(item => item.last_order_at && ((now - new Date(item.last_order_at).getTime()) / 86400000) > inactiveDays),
+    value: all.filter(item => item.total_spent_jod >= 25)
+  };
+
+  const zonesMap = new Map();
+  for (const item of all) {
+    const zone = item.last_zone_name || 'غير محدد';
+    zonesMap.set(zone, (zonesMap.get(zone) || 0) + 1);
+  }
+
+  const zones = [...zonesMap.entries()]
+    .map(([zone, count]) => ({ zone, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const labels = {
+    all: 'جميع العملاء',
+    returning: 'العملاء المتكررون',
+    new: 'العملاء الجدد',
+    inactive: 'العملاء غير النشطين',
+    value: 'العملاء الأعلى إنفاقًا',
+    zone: 'حسب المنطقة'
+  };
+
+  if (groupKey === 'zone') {
+    return {
+      groupKey,
+      label: labels[groupKey],
+      count: all.length,
+      phones: all.map(item => item.phone),
+      zones
+    };
+  }
+
+  const selected = grouped[groupKey] || all;
+
+  return {
+    groupKey,
+    label: labels[groupKey] || groupKey,
+    count: selected.length,
+    phones: selected.map(item => item.phone),
+    sample: selected.slice(0, 20)
+  };
 }
 
 export async function getLatestOpenOrderByPhone(rootDir, phone) {
@@ -251,6 +524,7 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr,
       updated_at: new Date().toISOString()
     });
   }
+
   const orders = loadCollection(rootDir, 'orders');
   const index = orders.findIndex(order => order.id === orderId);
   if (index === -1) return null;
