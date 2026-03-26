@@ -141,16 +141,24 @@ function normalizeOrderRow(order, customerId = null) {
 }
 
 function normalizeOrderItems(order) {
-  return (order.items || []).map(item => ({
-    order_id: order.id,
-    menu_item_id: item.id || item.record_id || null,
-    display_name_ar: item.display_name_ar || item.displayNameAr || item.name || 'صنف',
-    quantity: Number(item.quantity || 1),
-    unit_ar: item.unit_ar || item.unit || null,
-    unit_price_jod: Number(item.price_1_jod || item.price || 0),
-    line_total_jod: Number(item.lineTotalJod || item.line_total_jod || item.total || 0),
-    notes: item.notes || null
-  }));
+  return (order.items || []).map(item => {
+    const sourceMenuId = item.id || item.record_id || null;
+    const notesParts = [
+      item.notes || null,
+      sourceMenuId ? `source_menu_id:${sourceMenuId}` : null
+    ].filter(Boolean);
+
+    return {
+      order_id: order.id,
+      menu_item_id: null,
+      display_name_ar: item.display_name_ar || item.displayNameAr || item.name || 'صنف',
+      quantity: Number(item.quantity || 1),
+      unit_ar: item.unit_ar || item.unit || null,
+      unit_price_jod: Number(item.price_1_jod || item.price || 0),
+      line_total_jod: Number(item.lineTotalJod || item.line_total_jod || item.total || 0),
+      notes: notesParts.length ? notesParts.join(' | ') : null
+    };
+  });
 }
 
 export async function createOrder(rootDir, order) {
@@ -216,7 +224,7 @@ export async function findOrdersByPhone(rootDir, phone) {
     return selectRows('orders', { phone }, { orderBy: 'created_at', ascending: false, limit: 20 });
   }
   const orders = loadCollection(rootDir, 'orders');
-  return orders.filter(order => order.phone === phone).sort((a,b) => new Date(b.createdAt||b.created_at||0) - new Date(a.createdAt||a.created_at||0));
+  return orders.filter(order => order.phone === phone).sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0));
 }
 
 export async function getOrdersByStatus(rootDir, status, limit = 20) {
