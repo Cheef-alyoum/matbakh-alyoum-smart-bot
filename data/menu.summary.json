@@ -1,67 +1,53 @@
 {
+  "brand_ar": "مطبخ اليوم المركزي",
+  "menu_version": "2026-03-26-professional-v1",
+  "default_currency": "JOD",
+  "policy": {
+    "priority_source_ar": "الاعتماد الأعلى للمنيو الأول المعتمد من الإدارة",
+    "cooked_vs_raw_ar": "لا يتم خلط المطبوخ مع الجاهز للطبخ أو المفرز في نفس القسم",
+    "quantity_rule_ar": "الزيادة تكون بالضرب على الوحدة الأساسية، والحد الأدنى للتقليل نصف فقط للأصناف التي تسمح بذلك"
+  },
   "sections": [
     {
-      "section_ar": "عالم المحاشي",
-      "count": 8
+      "id": "bundles",
+      "title_ar": "الأطباق المطبوخة",
+      "description_ar": "محاشي، دجاج، لحوم، طبخات، سلطات، شوربات",
+      "count": 39,
+      "categories": [
+        "🥬 المحاشي",
+        "🍗 أطباق الدجاج",
+        "🥩 أطباق اللحوم",
+        "🍛 الطبخات البيتية",
+        "🥗 السلطات",
+        "🍲 الشوربات"
+      ]
     },
     {
-      "section_ar": "العروض المجمعة",
-      "count": 6
+      "id": "catering",
+      "title_ar": "الولائم والعزائم",
+      "description_ar": "خاروف كامل، نصف خاروف، ضلعة",
+      "count": 18,
+      "categories": [
+        "خاروف كامل",
+        "نصف خاروف",
+        "ضلعة"
+      ]
     },
     {
-      "section_ar": "الأطباق الرئيسية",
-      "count": 21
-    },
-    {
-      "section_ar": "أطباق نفرات",
-      "count": 8
-    },
-    {
-      "section_ar": "عالم المفتول",
-      "count": 4
-    },
-    {
-      "section_ar": "عالم اليالنجي",
-      "count": 7
-    },
-    {
-      "section_ar": "السلطات",
-      "count": 7
-    },
-    {
-      "section_ar": "الشوربات",
-      "count": 3
-    },
-    {
-      "section_ar": "المقالي",
-      "count": 5
-    },
-    {
-      "section_ar": "المفرزات",
-      "count": 7
-    },
-    {
-      "section_ar": "ولائم ومحاشي الذبائح",
-      "count": 18
+      "id": "frozen",
+      "title_ar": "المفرزات",
+      "description_ar": "أصناف مفرزة جاهزة للحفظ",
+      "count": 6,
+      "categories": [
+        "❄️ المفرزات"
+      ]
     }
   ],
-  "status_counts": {
-    "ready": 24,
-    "raw": 8,
-    "bundle": 6,
-    "made_to_order": 49,
-    "frozen": 7
-  },
-  "review_items": [
-    {
-      "record_id": "MY-0046",
-      "display_name_ar": "شوربة المفتول",
-      "review_note": "السعر يحتاج تأكيد"
-    },
-    {
-      "record_id": "MY-0079",
-      "display_name_ar": "محشي ورق عنب - خاروف كامل - بلدي - خاروف",
-      "review_note": "الوصف/التسمية تحتاج تأكيد"
-    }
-  ]
+  "counts": {
+    "total_live_items": 63,
+    "cooked_items": 39,
+    "catering_items": 18,
+    "frozen_items": 6,
+    "modifier_items": 2
+  }
 }
