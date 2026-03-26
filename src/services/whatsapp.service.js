@@ -56,6 +56,21 @@ const BUTTON_IDS = {
   EDIT_SCHEDULE: 'edit_schedule',
   EDIT_ZONE: 'edit_zone',
   EDIT_NOTES: 'edit_notes',
+
+  ADMIN_HOME: 'admin_home',
+  ADMIN_ORDERS: 'admin_orders',
+  ADMIN_REPORTS: 'admin_reports',
+  ADMIN_CAMPAIGNS: 'admin_campaigns',
+  ADMIN_ORDERS_NEW: 'orders_new',
+  ADMIN_ORDERS_FOLLOW: 'orders_follow',
+  ADMIN_ORDERS_SEARCH: 'orders_search',
+  ADMIN_REPORT_TODAY: 'report_today',
+  ADMIN_REPORT_WEEK: 'report_week',
+  ADMIN_REPORT_MONTH: 'report_month',
+  ADMIN_CAMPAIGN_NEW: 'campaign_new',
+  ADMIN_CAMPAIGN_SCHEDULE: 'campaign_schedule',
+  ADMIN_CAMPAIGN_GROUPS: 'campaign_groups',
+
   ADMIN_APPROVE: 'admin_approve',
   ADMIN_MODIFY: 'admin_modify',
   ADMIN_REJECT: 'admin_reject',
@@ -747,6 +762,201 @@ function editList() {
   );
 }
 
+/* =========================
+   ADMIN UI
+========================= */
+
+function adminHomeButtons() {
+  return {
+    type: 'button',
+    body: 'لوحة إدارة مطبخ اليوم المركزي 🌿\nاختر الإجراء المطلوب.',
+    buttons: [
+      { id: BUTTON_IDS.ADMIN_ORDERS, title: 'الطلبات' },
+      { id: BUTTON_IDS.ADMIN_REPORTS, title: 'التقارير' },
+      { id: BUTTON_IDS.ADMIN_CAMPAIGNS, title: 'الحملات' }
+    ]
+  };
+}
+
+function adminOrdersButtons() {
+  return {
+    type: 'button',
+    body: 'إدارة الطلبات 🌿\nاختر المسار المناسب.',
+    buttons: [
+      { id: BUTTON_IDS.ADMIN_ORDERS_NEW, title: 'جديدة' },
+      { id: BUTTON_IDS.ADMIN_ORDERS_FOLLOW, title: 'متابعة' },
+      { id: BUTTON_IDS.ADMIN_ORDERS_SEARCH, title: 'بحث' }
+    ]
+  };
+}
+
+function adminReportsButtons() {
+  return {
+    type: 'button',
+    body: 'التقارير الإدارية 🌿\nاختر نوع التقرير.',
+    buttons: [
+      { id: BUTTON_IDS.ADMIN_REPORT_TODAY, title: 'اليوم' },
+      { id: BUTTON_IDS.ADMIN_REPORT_WEEK, title: 'الأسبوع' },
+      { id: BUTTON_IDS.ADMIN_REPORT_MONTH, title: 'الشهر' }
+    ]
+  };
+}
+
+function adminCampaignButtons() {
+  return {
+    type: 'button',
+    body: 'إدارة الحملات والعروض 🌿\nاختر الإجراء المطلوب.',
+    buttons: [
+      { id: BUTTON_IDS.ADMIN_CAMPAIGN_NEW, title: 'عرض جديد' },
+      { id: BUTTON_IDS.ADMIN_CAMPAIGN_SCHEDULE, title: 'إرسال مجدول' },
+      { id: BUTTON_IDS.ADMIN_CAMPAIGN_GROUPS, title: 'المجموعات' }
+    ]
+  };
+}
+
+function adminFollowupList() {
+  return listMessage(
+    'اختر الحالة التي تريد متابعتها 🌿',
+    'الحالات',
+    'متابعة الطلبات',
+    [
+      { id: 'admin_follow_status:awaiting_admin_review', title: 'بانتظار الاعتماد', description: 'طلبات جديدة' },
+      { id: 'admin_follow_status:awaiting_customer_edit', title: 'بانتظار التعديل', description: 'بحاجة تواصل' },
+      { id: 'admin_follow_status:approved', title: 'تم الاعتماد', description: 'اعتماد من الإدارة' },
+      { id: 'admin_follow_status:preparing', title: 'قيد التحضير', description: 'داخل المطبخ' },
+      { id: 'admin_follow_status:ready', title: 'جاهز', description: 'جاهز للتسليم' },
+      { id: 'admin_follow_status:out_for_delivery', title: 'قيد التوصيل', description: 'مع السائق' }
+    ]
+  );
+}
+
+function adminGroupsList() {
+  return listMessage(
+    'اختر المجموعة المستهدفة 🌿',
+    'المجموعات',
+    'المجموعات',
+    [
+      { id: 'admin_group:all', title: 'جميع العملاء', description: 'إرسال عام' },
+      { id: 'admin_group:returning', title: 'المتكررون', description: 'العملاء العائدون' },
+      { id: 'admin_group:new', title: 'الجدد', description: 'العملاء الجدد' },
+      { id: 'admin_group:inactive', title: 'غير النشطين', description: 'إعادة تنشيط' },
+      { id: 'admin_group:zone', title: 'حسب المنطقة', description: 'تقسيم جغرافي' },
+      { id: 'admin_group:value', title: 'حسب قيمة الطلب', description: 'تقسيم حسب الإنفاق' }
+    ]
+  );
+}
+
+function adminViewOrdersList(title, rows) {
+  return listMessage(
+    `اختر الطلب المطلوب من ${title} 🌿`,
+    'الطلبات',
+    title,
+    rows
+  );
+}
+
+function buildAdminOrderViewRows(orders = []) {
+  return orders.map(order => ({
+    id: `admin_view:${order.id}`,
+    title: shortButton(order.id, 24),
+    description: `${order.phone || '-'} • ${money(order.total_jod || order.totalJod || 0)}`.slice(0, 72)
+  }));
+}
+
+function buildAdminOrderSummary(order, items = []) {
+  const lines = [
+    `رقم الطلب: ${order.id}`,
+    `الهاتف: ${order.phone || '-'}`,
+    `الحالة: ${labelFromStatus(order.status)}`,
+    order.customer_name ? `الاسم: ${order.customer_name}` : null,
+    '',
+    ...(items || []).map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`),
+    '',
+    order.delivery_day ? `اليوم: ${order.delivery_day}` : null,
+    order.delivery_slot ? `الوقت: ${order.delivery_slot}` : null,
+    order.delivery_type ? `النوع: ${order.delivery_type === 'pickup' ? 'استلام' : 'توصيل'}` : null,
+    order.delivery_zone_name ? `المنطقة: ${order.delivery_zone_name}` : null,
+    order.address_text ? `العنوان: ${order.address_text}` : null,
+    order.payment_method ? `الدفع: ${order.payment_method}` : null,
+    order.order_notes ? `الملاحظات: ${order.order_notes}` : null,
+    `الإجمالي: ${money(order.total_jod || order.totalJod || 0)}`
+  ].filter(Boolean);
+
+  return lines.join('\n');
+}
+
+async function sendAdminPendingOrders(rootDir, to) {
+  const orders = await getOrdersByStatus(rootDir, 'awaiting_admin_review');
+  if (!orders.length) {
+    return sendWhatsAppText(rootDir, to, 'لا توجد طلبات بانتظار الاعتماد حاليًا.');
+  }
+  return sendWhatsAppInteractive(rootDir, to, adminViewOrdersList('الطلبات الجديدة', buildAdminOrderViewRows(orders.slice(0, 10))));
+}
+
+async function sendAdminOrdersByStatus(rootDir, to, status) {
+  const orders = await getOrdersByStatus(rootDir, status);
+  if (!orders.length) {
+    return sendWhatsAppText(rootDir, to, `لا توجد طلبات ضمن حالة: ${labelFromStatus(status)} حاليًا.`);
+  }
+  return sendWhatsAppInteractive(rootDir, to, adminViewOrdersList(labelFromStatus(status), buildAdminOrderViewRows(orders.slice(0, 10))));
+}
+
+async function sendAdminOrderDetails(rootDir, to, orderId) {
+  const order = await getOrderById(rootDir, orderId);
+  if (!order) {
+    return sendWhatsAppText(rootDir, to, 'تعذر العثور على الطلب المطلوب.');
+  }
+  const items = await getOrderItems(rootDir, orderId);
+  await sendWhatsAppText(rootDir, to, buildAdminOrderSummary(order, items));
+  return sendWhatsAppInteractive(rootDir, to, adminDecisionButtons(orderId));
+}
+
+async function sendAdminQuickReport(rootDir, to, periodLabel) {
+  const awaiting = await getOrdersByStatus(rootDir, 'awaiting_admin_review', 500);
+  const edits = await getOrdersByStatus(rootDir, 'awaiting_customer_edit', 500);
+  const approved = await getOrdersByStatus(rootDir, 'approved', 500);
+  const preparing = await getOrdersByStatus(rootDir, 'preparing', 500);
+  const ready = await getOrdersByStatus(rootDir, 'ready', 500);
+  const out = await getOrdersByStatus(rootDir, 'out_for_delivery', 500);
+  const delivered = await getOrdersByStatus(rootDir, 'delivered', 500);
+  const rejected = await getOrdersByStatus(rootDir, 'rejected', 500);
+
+  const deliveredSales = (delivered || []).reduce((sum, order) => sum + Number(order.total_jod || order.totalJod || 0), 0);
+  const allCount =
+    awaiting.length +
+    edits.length +
+    approved.length +
+    preparing.length +
+    ready.length +
+    out.length +
+    delivered.length +
+    rejected.length;
+
+  const body = [
+    `تقرير ${periodLabel} 🌿`,
+    '',
+    `إجمالي الطلبات: ${allCount}`,
+    `بانتظار الاعتماد: ${awaiting.length}`,
+    `بانتظار التعديل: ${edits.length}`,
+    `تم الاعتماد: ${approved.length}`,
+    `قيد التحضير: ${preparing.length}`,
+    `جاهز: ${ready.length}`,
+    `قيد التوصيل: ${out.length}`,
+    `تم التسليم: ${delivered.length}`,
+    `مرفوض: ${rejected.length}`,
+    '',
+    `إجمالي مبيعات الطلبات المسلّمة: ${money(deliveredSales)}`,
+    '',
+    'ملاحظة: هذا تقرير تشغيلي سريع من داخل واتساب. الفلترة الزمنية التحليلية الدقيقة تكون في طبقة التقارير التفصيلية.'
+  ].join('\n');
+
+  return sendWhatsAppText(rootDir, to, body);
+}
+
+/* =========================
+   EXISTING ADMIN ORDER FLOW
+========================= */
+
 function adminDecisionButtons(orderId) {
   return {
     type: 'button',
@@ -990,7 +1200,7 @@ function normalizeInteractivePayload(interactive) {
           title: shortButton(section.title || 'خيارات'),
           rows: (section.rows || []).slice(0, 10).map(row => ({
             id: String(row.id || '').slice(0, 200),
-            title: shortButton(row.title || ''),
+            title: shortButton(row.title || '', 24),
             description: String(row.description || '').slice(0, 72)
           }))
         }))
@@ -1132,7 +1342,7 @@ async function notifyAdminsNewOrder(rootDir, order, config) {
   const items = await getOrderItems(rootDir, order.id);
   const admins = getAdminNumbers(config);
 
-  const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod)}`);
+  const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`);
   const summary = [
     'طلب جديد يحتاج اعتماد 🌿',
     `رقم الطلب: ${order.id}`,
@@ -1140,7 +1350,7 @@ async function notifyAdminsNewOrder(rootDir, order, config) {
     '',
     ...lines,
     '',
-    `الإجمالي: ${money(order.total_jod)}`,
+    `الإجمالي: ${money(order.total_jod || order.totalJod)}`,
     order.delivery_slot ? `الموعد: ${order.delivery_slot}` : null,
     order.address_text ? `العنوان: ${order.address_text}` : null,
     order.order_notes ? `الملاحظات: ${order.order_notes}` : null
@@ -1333,8 +1543,11 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       console.error('MESSAGES_LOG_SUPABASE_ERROR', error);
     }
 
+    /* ========= ADMIN FLOW ========= */
+
     if (isAdminPhone(from, config) && type === 'interactive') {
       const selection = readIncomingSelection(message, rootDir);
+
       if (
         selection.startsWith(BUTTON_IDS.ADMIN_APPROVE) ||
         selection.startsWith(BUTTON_IDS.ADMIN_MODIFY) ||
@@ -1348,45 +1561,148 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         const delivered = await sendWhatsAppText(rootDir, to, outcome.message);
         return json(res, 200, { ok: true, delivered, mode: 'admin_action' });
       }
+
+      if (selection === BUTTON_IDS.ADMIN_HOME) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminHomeButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_home' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_ORDERS) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminOrdersButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_orders' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_REPORTS) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminReportsButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_reports' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_CAMPAIGNS) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminCampaignButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_campaigns' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_ORDERS_NEW) {
+        const delivered = await sendAdminPendingOrders(rootDir, to);
+        return json(res, 200, { ok: true, delivered, mode: 'admin_orders_new' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_ORDERS_FOLLOW) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminFollowupList());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_orders_follow' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_ORDERS_SEARCH) {
+        const delivered = await sendWhatsAppText(rootDir, to, 'أرسل رقم الطلب بهذا الشكل:\n/view MAE001');
+        return json(res, 200, { ok: true, delivered, mode: 'admin_orders_search_prompt' });
+      }
+
+      if (selection.startsWith('admin_follow_status:')) {
+        const statusKey = selection.split(':')[1];
+        const delivered = await sendAdminOrdersByStatus(rootDir, to, statusKey);
+        return json(res, 200, { ok: true, delivered, mode: 'admin_follow_status' });
+      }
+
+      if (selection.startsWith('admin_view:')) {
+        const orderId = selection.split(':')[1];
+        const delivered = await sendAdminOrderDetails(rootDir, to, orderId);
+        return json(res, 200, { ok: true, delivered, mode: 'admin_view_order' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_REPORT_TODAY) {
+        const delivered = await sendAdminQuickReport(rootDir, to, 'اليوم');
+        return json(res, 200, { ok: true, delivered, mode: 'admin_report_today' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_REPORT_WEEK) {
+        const delivered = await sendAdminQuickReport(rootDir, to, 'الأسبوع');
+        return json(res, 200, { ok: true, delivered, mode: 'admin_report_week' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_REPORT_MONTH) {
+        const delivered = await sendAdminQuickReport(rootDir, to, 'الشهر');
+        return json(res, 200, { ok: true, delivered, mode: 'admin_report_month' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_CAMPAIGN_NEW) {
+        const delivered = await sendWhatsAppText(
+          rootDir,
+          to,
+          'وضع إنشاء عرض جديد تم فتحه 🌿\nالمرحلة الحالية: تجهيز الهيكل الإداري.\nالخطوة التالية ستكون ربط النصوص والقوالب الشرعية للإرسال الجماعي.'
+        );
+        return json(res, 200, { ok: true, delivered, mode: 'admin_campaign_new' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_CAMPAIGN_SCHEDULE) {
+        const delivered = await sendWhatsAppText(
+          rootDir,
+          to,
+          'وضع الإرسال المجدول تم فتحه 🌿\nسيتم ربط التاريخ والوقت مع مهام الجدولة في المرحلة التالية.'
+        );
+        return json(res, 200, { ok: true, delivered, mode: 'admin_campaign_schedule' });
+      }
+
+      if (selection === BUTTON_IDS.ADMIN_CAMPAIGN_GROUPS) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminGroupsList());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_campaign_groups' });
+      }
+
+      if (selection.startsWith('admin_group:')) {
+        const groupKey = selection.split(':')[1];
+        const labels = {
+          all: 'جميع العملاء',
+          returning: 'العملاء المتكررون',
+          new: 'العملاء الجدد',
+          inactive: 'العملاء غير النشطين',
+          zone: 'حسب المنطقة',
+          value: 'حسب قيمة الطلب'
+        };
+        const delivered = await sendWhatsAppText(
+          rootDir,
+          to,
+          `تم اختيار المجموعة: ${labels[groupKey] || groupKey} 🌿\nالخطوة التالية ستكون ربط هذه المجموعات بآلية إرسال العروض والقوالب المعتمدة.`
+        );
+        return json(res, 200, { ok: true, delivered, mode: 'admin_group_selected' });
+      }
     }
 
     if (isAdminPhone(from, config) && type === 'text') {
       const command = text.trim();
+      const normalizedAdminText = normalizeUserText(command);
+
+      if (command === '/admin' || /^(الاداره|اداره|لوحه الاداره|لوحة الادارة|admin)$/.test(normalizedAdminText)) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminHomeButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_home_text' });
+      }
 
       if (command === '/pending') {
-        const orders = await getOrdersByStatus(rootDir, 'awaiting_admin_review');
-        const bodyText = orders.length
-          ? ['طلبات بانتظار الاعتماد 🌿', '', ...orders.slice(0, 10).map(order => `${order.id} — ${order.phone} — ${money(order.total_jod || order.totalJod)}`)].join('\n')
-          : 'لا توجد طلبات بانتظار الاعتماد حاليًا.';
-
-        const delivered = await sendWhatsAppText(rootDir, to, bodyText);
+        const delivered = await sendAdminPendingOrders(rootDir, to);
         return json(res, 200, { ok: true, delivered, mode: 'admin_pending' });
       }
 
       if (command.startsWith('/view ')) {
         const orderId = command.split(' ').slice(1).join(' ').trim();
-        const order = await getOrderById(rootDir, orderId);
-
-        if (!order) {
-          const delivered = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الطلب المطلوب.');
-          return json(res, 200, { ok: true, delivered, mode: 'admin_view_missing' });
-        }
-
-        const items = await getOrderItems(rootDir, orderId);
-        const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`);
-        const summary = [
-          `رقم الطلب: ${order.id}`,
-          `الهاتف: ${order.phone}`,
-          `الحالة: ${labelFromStatus(order.status)}`,
-          '',
-          ...lines
-        ].join('\n');
-
-        await sendWhatsAppText(rootDir, to, summary);
-        const delivered = await sendWhatsAppInteractive(rootDir, to, adminDecisionButtons(orderId));
+        const delivered = await sendAdminOrderDetails(rootDir, to, orderId);
         return json(res, 200, { ok: true, delivered, mode: 'admin_view' });
       }
+
+      if (/^(التقارير|تقارير)$/.test(normalizedAdminText)) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminReportsButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_reports_text' });
+      }
+
+      if (/^(الطلبات|طلبات)$/.test(normalizedAdminText)) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminOrdersButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_orders_text' });
+      }
+
+      if (/^(الحملات|حملات|العروض|عروض)$/.test(normalizedAdminText)) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminCampaignButtons());
+        return json(res, 200, { ok: true, delivered, mode: 'admin_campaigns_text' });
+      }
     }
+
+    /* ========= CUSTOMER FLOW ========= */
 
     let session = await getConversationSession(rootDir, from);
     let sessionData = readSessionData(session);
@@ -1777,6 +2093,23 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         ? await sendWhatsAppInteractive(rootDir, to, paymentButtons())
         : await sendWhatsAppInteractive(rootDir, to, sectorList(rootDir));
       return json(res, 200, { ok: true, delivered, mode: 'delivery_type_selected' });
+    }
+
+    if (selection.startsWith('sector_page:')) {
+      const page = Number(selection.split(':')[1] || 0);
+      const groups = getDeliveryGroupList(rootDir);
+      const rows = paginateRows(
+        groups.map(group => ({
+          id: `sector:${group.key}:0`,
+          title: shortButton(normalizeSectorLabel(group), 24),
+          description: `${group.count} منطقة`
+        })),
+        page,
+        9,
+        nextPage => `sector_page:${nextPage}`
+      );
+      const delivered = await sendWhatsAppInteractive(rootDir, to, listMessage('اختر المنطقة الرئيسية أولًا 🌿', 'المناطق', 'المناطق الرئيسية', rows));
+      return json(res, 200, { ok: true, delivered, mode: 'sector_page' });
     }
 
     if (selection.startsWith('sector:')) {
