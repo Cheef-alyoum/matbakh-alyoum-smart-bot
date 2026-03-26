@@ -1,7 +1,18 @@
 import crypto from 'node:crypto';
 import { parseBody, json, normalizePhone, slugify } from '../utils/core.js';
 import { getDeliveryGroupByKey, getDeliveryGroupList, getDeliveryZoneById } from './delivery.service.js';
-import { getBotRoots, getItemExtras, getItemsForRoot, getMenuItemById } from './menu.service.js';
+import {
+  getBotRoots,
+  getDisplayUnit,
+  getItemExtras,
+  getItemsForRoot,
+  getMenuItemById,
+  getRootById,
+  getRootCategoryOptions,
+  getRootStatusOptions,
+  getRootTypeOptions,
+  resolveRootId
+} from './menu.service.js';
 import {
   createOrder,
   generateNextOrderCode,
@@ -55,7 +66,7 @@ const BUTTON_IDS = {
 };
 
 const TERMINAL_STATUSES = ['delivered', 'cancelled', 'rejected', 'customer_exit'];
-const TRACK_TERMS = /(حالة|متابعة|وين|جاهز|وصل|طلبي|tracking|track|status)/i;
+const TRACK_TERMS = /(حاله|حالة|متابعه|متابعة|track|tracking|status|طلبي|الطلب|وين طلبي|وين الطلب|طلبي وين)/i;
 
 function getSafeHost(req) {
   return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000';
@@ -86,7 +97,7 @@ function buildTextLinks(config, req) {
     menuUrl: `${baseUrl}/menu.html`,
     orderUrl: `${baseUrl}/order.html`,
     trackUrl: `${baseUrl}/track.html`,
-    phone: process.env.WHATSAPP_HUMAN_ESCALATION_NUMBER || config.site.businessPhoneDisplay
+    phone: process.env.WHATSAPP_HUMAN_ESCALATION_NUMBER || config?.site?.businessPhoneDisplay || ''
   };
 }
 
@@ -116,39 +127,8 @@ function money(value) {
   return `${Number(value || 0).toFixed(3)} د.أ`;
 }
 
-function labelFromStatus(status) {
-  return {
-    awaiting_admin_review: 'بانتظار اعتماد الإدارة',
-    awaiting_customer_edit: 'بانتظار تعديلك',
-    approved: 'تم اعتماد الطلب',
-    preparing: 'قيد التحضير',
-    ready: 'طلبك جاهز',
-    out_for_delivery: 'قيد التوصيل',
-    delivered: 'تم التسليم',
-    rejected: 'لم يتم اعتماد الطلب',
-    customer_exit: 'تم إغلاق الطلب'
-  }[status] || 'قيد المتابعة';
-}
-
-function mapPrepStatusToCustomer(status, orderId, notes = '') {
-  if (status === 'approved') {
-    return `تم اعتماد طلبك ✅\nرقم الطلب: ${orderId}\nطريقة الدفع: الدفع عند الاستلام - كاش\nسنوافيك بتحديثات الطلب حتى التسليم.`;
-  }
-  if (status === 'awaiting_customer_edit') {
-    return `طلبك يحتاج تعديلًا بسيطًا قبل الاعتماد 🌿\nسنرتب معك التعديل الآن حتى نثبّته بالشكل الصحيح.${notes ? `\n\nملاحظة الإدارة: ${notes}` : ''}`;
-  }
-  if (status === 'rejected') {
-    return `نعتذر منك، لم يتم اعتماد الطلب الحالي. إذا رغبت نعيد ترتيبه معك أو نحولك مباشرة لموظف.${notes ? `\n\n${notes}` : ''}`;
-  }
-  if (status === 'preparing') return `طلبك الآن قيد التحضير 👨‍🍳\nرقم الطلب: ${orderId}`;
-  if (status === 'ready') return `طلبك أصبح جاهزًا ✅\nرقم الطلب: ${orderId}`;
-  if (status === 'out_for_delivery') return `طلبك قيد التوصيل الآن 🚚\nرقم الطلب: ${orderId}`;
-  if (status === 'delivered') return `تم تسليم طلبك بنجاح ✅\nنتمنى لك وجبة هنيّة ونسعد بتقييمك بعد التجربة.`;
-  return `حالة طلبك الحالية: ${labelFromStatus(status)}\nرقم الطلب: ${orderId}`;
-}
-
 function shortButton(title) {
-  return String(title).slice(0, 20);
+  return String(title || '').trim().slice(0, 20);
 }
 
 function normalizeUserText(value = '') {
@@ -167,95 +147,35 @@ function normalizeUserText(value = '') {
     .trim();
 }
 
-function readIncomingSelection(message, rootDir = '') {
-  if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
-    return message.interactive.button_reply?.id || '';
+function labelFromStatus(status) {
+  return {
+    awaiting_admin_review: 'بانتظار اعتماد الإدارة',
+    awaiting_customer_edit: 'بانتظار التعديل',
+    approved: 'تم اعتماد الطلب',
+    preparing: 'قيد التحضير',
+    ready: 'جاهز',
+    out_for_delivery: 'قيد التوصيل',
+    delivered: 'تم التسليم',
+    rejected: 'مرفوض',
+    customer_exit: 'مغلق'
+  }[status] || 'قيد المتابعة';
+}
+
+function mapPrepStatusToCustomer(status, orderId, notes = '') {
+  if (status === 'approved') {
+    return `تم اعتماد طلبك ✅\nرقم الطلب: ${orderId}\nطريقة الدفع: الدفع عند الاستلام - كاش\nسنرسل لك التحديثات هنا حتى التسليم.`;
   }
-
-  if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
-    return message.interactive.list_reply?.id || '';
+  if (status === 'awaiting_customer_edit') {
+    return `طلبك يحتاج تعديلًا بسيطًا قبل الاعتماد 🌿\nسنرتب معك التعديل هنا مباشرة.${notes ? `\n\nملاحظة الإدارة: ${notes}` : ''}`;
   }
-
-  const rawText = String(message.text?.body || '').trim();
-  const simple = normalizeUserText(rawText);
-
-  if (!simple) return '';
-
-  const exactMap = {
-    العربيه: BUTTON_IDS.AR,
-    عربي: BUTTON_IDS.AR,
-    arabic: BUTTON_IDS.AR,
-    english: BUTTON_IDS.EN,
-    انجليزي: BUTTON_IDS.EN,
-    انجليزيه: BUTTON_IDS.EN,
-    اوافق: BUTTON_IDS.CONSENT_YES,
-    خدمه: BUTTON_IDS.CONSENT_SERVICE_ONLY,
-    'خدمه فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
-    'لا اوافق': BUTTON_IDS.CONSENT_NO,
-    اطلب: BUTTON_IDS.START_ORDER,
-    'ابدا الطلب': BUTTON_IDS.START_ORDER,
-    'طلب جديد': BUTTON_IDS.START_ORDER,
-    المنيو: BUTTON_IDS.SHOW_MENU,
-    القائمه: BUTTON_IDS.SHOW_MENU,
-    الاصناف: BUTTON_IDS.SHOW_MENU,
-    تتبع: BUTTON_IDS.TRACK_ORDER,
-    متابعه: BUTTON_IDS.TRACK_ORDER,
-    موظف: BUTTON_IDS.HUMAN,
-    'موظف مباشر': BUTTON_IDS.HUMAN,
-    اضافه: BUTTON_IDS.ADD_MORE,
-    'متابعه السله': BUTTON_IDS.CHECKOUT,
-    'متابعه الطلب': BUTTON_IDS.TRACK_ORDER,
-    الغاء: BUTTON_IDS.CLEAR_CART,
-    توصيل: BUTTON_IDS.DELIVERY,
-    استلام: BUTTON_IDS.PICKUP,
-    كاش: BUTTON_IDS.PAY_CASH,
-    ملاحظات: BUTTON_IDS.NOTES_ADD,
-    'بدون ملاحظات': BUTTON_IDS.NOTES_SKIP,
-    تاكيد: BUTTON_IDS.CUSTOMER_CONFIRM,
-    تعديل: BUTTON_IDS.CUSTOMER_EDIT,
-    خروج: BUTTON_IDS.CUSTOMER_EXIT,
-    'الاصناف التعديل': BUTTON_IDS.EDIT_ITEMS,
-    الموعد: BUTTON_IDS.EDIT_SCHEDULE,
-    المنطقه: BUTTON_IDS.EDIT_ZONE,
-    الملاحظات: BUTTON_IDS.EDIT_NOTES
-  };
-
-  if (exactMap[simple]) return exactMap[simple];
-
-  if (
-    /(المنيو|القائمه|الاصناف|عرض المنيو|اعرض المنيو)/.test(simple) ||
-    /(^|\s)(menu|show menu|catalog)(\s|$)/.test(simple)
-  ) {
-    return BUTTON_IDS.SHOW_MENU;
+  if (status === 'rejected') {
+    return `نعتذر منك، لم يتم اعتماد الطلب الحالي.${notes ? `\n\n${notes}` : ''}`;
   }
-
-  if (
-    /(اطلب|ابدا الطلب|طلب جديد|بدي اطلب|ابغى اطلب|اريد الطلب|اريد اطلب)/.test(simple) ||
-    /(^|\s)(order|start order|new order|buy)(\s|$)/.test(simple)
-  ) {
-    return BUTTON_IDS.START_ORDER;
-  }
-
-  if (
-    /(تتبع|حاله|متابعه|حاله طلبي|وين طلبي|طلبي وين|وين الطلب)/.test(simple) ||
-    /(^|\s)(track|tracking|track order|status|where is my order)(\s|$)/.test(simple)
-  ) {
-    return BUTTON_IDS.TRACK_ORDER;
-  }
-
-  if (
-    /(موظف|خدمه العملاء|الدعم|تواصل مباشر)/.test(simple) ||
-    /(^|\s)(agent|human|support|customer service)(\s|$)/.test(simple)
-  ) {
-    return BUTTON_IDS.HUMAN;
-  }
-
-  if (rootDir && rawText) {
-    const directItem = getMenuItemById(rootDir, rawText) || getMenuItemById(rootDir, simple);
-    if (directItem) return `item:${directItem.record_id}`;
-  }
-
-  return '';
+  if (status === 'preparing') return `طلبك الآن قيد التحضير 👨‍🍳\nرقم الطلب: ${orderId}`;
+  if (status === 'ready') return `طلبك أصبح جاهزًا ✅\nرقم الطلب: ${orderId}`;
+  if (status === 'out_for_delivery') return `طلبك قيد التوصيل الآن 🚚\nرقم الطلب: ${orderId}`;
+  if (status === 'delivered') return 'تم تسليم طلبك بنجاح ✅\nنتمنى لك وجبة هنيّة.';
+  return `حالة طلبك الحالية: ${labelFromStatus(status)}\nرقم الطلب: ${orderId}`;
 }
 
 function buildLocationText(message) {
@@ -269,13 +189,22 @@ function buildLocationText(message) {
   return parts.join(' — ');
 }
 
+function baseUnitLabel(item) {
+  return getDisplayUnit(item);
+}
+
+function quantityButtonLabel(item, quantity) {
+  const unit = baseUnitLabel(item);
+  if (unit === 'طلب') return `${quantity} طلب`;
+  return shortButton(`${quantity} ${unit}`);
+}
+
 function defaultDraft() {
   return {
     rootId: null,
     meatType: null,
     statusFilter: null,
     categoryFilter: null,
-    selectedItemId: null,
     deliveryType: 'delivery',
     deliveryDayLabel: null,
     deliveryDayIso: null,
@@ -296,14 +225,12 @@ function readSessionData(session) {
   const raw = session?.session_data || session?.sessionData || {};
   return {
     cart: Array.isArray(raw.cart) ? raw.cart : [],
-    selectedSection: raw.selectedSection || null,
-    itemPage: Number(raw.itemPage || 0),
     pendingItemId: raw.pendingItemId || null,
+    pendingExtras: Array.isArray(raw.pendingExtras) ? raw.pendingExtras : [],
     awaiting: raw.awaiting || null,
     dayOptions: Array.isArray(raw.dayOptions) ? raw.dayOptions : [],
-    lastPrompt: raw.lastPrompt || null,
-    orderDraft: { ...defaultDraft(), ...(raw.orderDraft || {}) },
-    lastOrderId: session?.last_order_id || raw.lastOrderId || null
+    lastOrderId: session?.last_order_id || raw.lastOrderId || null,
+    orderDraft: { ...defaultDraft(), ...(raw.orderDraft || {}) }
   };
 }
 
@@ -311,12 +238,10 @@ function mergeSessionData(session, patch = {}) {
   const current = readSessionData(session);
   return {
     cart: patch.cart !== undefined ? patch.cart : current.cart,
-    selectedSection: patch.selectedSection !== undefined ? patch.selectedSection : current.selectedSection,
-    itemPage: patch.itemPage !== undefined ? patch.itemPage : current.itemPage,
     pendingItemId: patch.pendingItemId !== undefined ? patch.pendingItemId : current.pendingItemId,
+    pendingExtras: patch.pendingExtras !== undefined ? patch.pendingExtras : current.pendingExtras,
     awaiting: patch.awaiting !== undefined ? patch.awaiting : current.awaiting,
     dayOptions: patch.dayOptions !== undefined ? patch.dayOptions : current.dayOptions,
-    lastPrompt: patch.lastPrompt !== undefined ? patch.lastPrompt : current.lastPrompt,
     lastOrderId: patch.lastOrderId !== undefined ? patch.lastOrderId : current.lastOrderId,
     orderDraft: {
       ...current.orderDraft,
@@ -331,16 +256,27 @@ async function persistSession(rootDir, phone, session, patch = {}) {
     currentState: patch.currentState || patch.current_state || session?.current_state || 'welcome',
     preferredLanguage: patch.preferredLanguage || patch.preferred_language || session?.preferred_language || 'ar',
     consentStatus: patch.consentStatus || patch.consent_status || session?.consent_status || 'pending',
-    lastMenuSection: patch.lastMenuSection || patch.last_menu_section || mergedData.selectedSection || session?.last_menu_section || null,
+    lastMenuSection: patch.lastMenuSection || patch.last_menu_section || mergedData.orderDraft.rootId || session?.last_menu_section || null,
     lastOrderId: patch.lastOrderId || patch.last_order_id || mergedData.lastOrderId || session?.last_order_id || null,
     sessionData: mergedData
   });
 }
 
+function resetDraftKeepingSession() {
+  return {
+    cart: [],
+    pendingItemId: null,
+    pendingExtras: [],
+    awaiting: null,
+    dayOptions: [],
+    orderDraft: defaultDraft()
+  };
+}
+
 function welcomeButtons(returning = false, language = 'ar') {
   const body = returning
-    ? 'يسعدنا تواصلك معنا من جديد 🌿\nنرتب لك طلبك بسرعة ونحفظ لك المتابعة من رقمك مباشرة. اختر اللغة أو اطلب موظفًا.'
-    : 'أهلًا وسهلًا بك في مطبخ اليوم المركزي 🌿\nأكلات بيتية محلية بطعم أصيل وجودة تليق بذوقك. اختر اللغة أو اطلب المساعدة من موظف مباشر.';
+    ? 'يسعدنا تواصلك معنا من جديد 🌿\nجاهزون لترتيب طلبك بسرعة. اختر اللغة أو اطلب موظفًا.'
+    : 'أهلًا وسهلًا بك في مطبخ اليوم المركزي 🌿\nأكل بيتي محلي بطعم أصيل وجودة مرتبة. اختر اللغة أو اطلب موظفًا.';
 
   return {
     type: 'button',
@@ -357,8 +293,8 @@ function consentButtons(language = 'ar') {
   return {
     type: 'button',
     body: language === 'en'
-      ? 'Before we continue, do you agree to receive offers and service updates related to your orders?'
-      : 'قبل المتابعة 🌿\nنستخدم بيانات المحادثة لتحسين الخدمة وتنظيم الطلبات. هل توافقون على استقبال العروض والتحديثات المرتبطة بالخدمة؟',
+      ? 'Do you agree to receive service updates and offers related to your orders?'
+      : 'قبل المتابعة 🌿\nهل توافق على استقبال تحديثات الخدمة والعروض المرتبطة بطلباتك؟',
     buttons: [
       { id: BUTTON_IDS.CONSENT_YES, title: language === 'en' ? 'Agree' : 'أوافق' },
       { id: BUTTON_IDS.CONSENT_SERVICE_ONLY, title: language === 'en' ? 'Service only' : 'خدمة فقط' },
@@ -371,133 +307,184 @@ function mainMenuButtons(language = 'ar') {
   return {
     type: 'button',
     body: language === 'en'
-      ? 'Welcome 🌿 Choose the path that fits you and we will continue step by step.'
-      : 'كيف يمكننا خدمتك اليوم؟ اختر المسار المناسب وسنكمل معك خطوة بخطوة 🌿',
+      ? 'Choose what you want and we will continue step by step.'
+      : 'كيف نقدر نخدمك اليوم؟ اختر المسار المناسب وسنكمل خطوة بخطوة 🌿',
     buttons: [
-      { id: BUTTON_IDS.START_ORDER, title: language === 'en' ? 'Order' : 'اطلب' },
-      { id: BUTTON_IDS.SHOW_MENU, title: language === 'en' ? 'Menu' : 'المنيو' },
-      { id: BUTTON_IDS.TRACK_ORDER, title: language === 'en' ? 'Track' : 'تتبع' }
+      { id: BUTTON_IDS.START_ORDER, title: language === 'en' ? 'Order' : 'اطلب الآن' },
+      { id: BUTTON_IDS.TRACK_ORDER, title: language === 'en' ? 'Track' : 'تتبع طلبي' },
+      { id: BUTTON_IDS.HUMAN, title: language === 'en' ? 'Agent' : 'موظف' }
     ]
+  };
+}
+
+function paginateRows(rows, page = 0, pageSize = 9, moreIdFactory = () => '') {
+  const start = page * pageSize;
+  const subset = rows.slice(start, start + pageSize);
+  if (start + pageSize < rows.length) {
+    subset.push({
+      id: moreIdFactory(page + 1),
+      title: 'المزيد',
+      description: 'عرض خيارات إضافية'
+    });
+  }
+  return subset;
+}
+
+function listMessage(body, buttonText, title, rows) {
+  return {
+    type: 'list',
+    body,
+    buttonText,
+    sections: [{ title, rows }]
   };
 }
 
 function rootList(rootDir, page = 0) {
   const roots = getBotRoots(rootDir);
-  const pageSize = 10;
-  const start = page * pageSize;
-  const subset = roots.slice(start, start + pageSize);
-  const rows = subset.map(root => ({
-    id: `root:${root.id}`,
-    title: shortButton(root.title),
-    description: `${root.count} صنف`
-  }));
+  const rows = paginateRows(
+    roots.map(root => ({
+      id: `root:${root.id}`,
+      title: shortButton(root.title),
+      description: `${root.description} — ${root.count} صنف`
+    })),
+    page,
+    9,
+    nextPage => `roots_page:${nextPage}`
+  );
 
-  if (start + pageSize < roots.length) {
-    rows.push({ id: `roots_page:${page + 1}`, title: 'المزيد', description: 'عرض أقسام إضافية' });
-  }
-
-  return {
-    type: 'list',
-    body: 'تفضل منيو مطبخ اليوم المركزي 🌿\nاختر القسم المناسب، وبعدها نرتب لك الطلب خطوة بخطوة.',
-    buttonText: 'اختيار القسم',
-    sections: [{ title: 'الأقسام', rows }]
-  };
+  return listMessage(
+    'تفضل منيو مطبخ اليوم المركزي 🌿\nاختر القسم المناسب ثم نكمل مثل تطبيقات الطلب خطوة بخطوة.',
+    'الأقسام',
+    'الأقسام الرئيسية',
+    rows
+  );
 }
 
-function meatTypeButtons(rootTitle = 'الأطباق') {
+function statusButtonsForRoot(rootTitle = 'القسم', statusOptions = []) {
+  const buttons = statusOptions.slice(0, 3).map(option => ({
+    id: `status:${option.value}`,
+    title: shortButton(option.label)
+  }));
+
   return {
     type: 'button',
-    body: `اختر نوع اللحم في ${rootTitle} 🌿`,
-    buttons: [
-      { id: 'meat:بلدي', title: 'بلدي' },
-      { id: 'meat:روماني', title: 'روماني' },
+    body: `اختر الحالة المطلوبة داخل ${rootTitle} 🌿`,
+    buttons: buttons.length ? buttons : [
       { id: BUTTON_IDS.EXIT, title: 'خروج' }
     ]
   };
 }
 
-function statusButtons() {
+function typeButtonsForRoot(rootTitle = 'القسم', typeOptions = []) {
+  const buttons = typeOptions.slice(0, 3).map(option => ({
+    id: `type:${slugify(option.value)}`,
+    title: shortButton(option.label)
+  }));
+
   return {
     type: 'button',
-    body: 'حدد حالة الصنف المطلوبة 🌿',
-    buttons: [
-      { id: 'state:مطبوخ', title: 'مطبوخ' },
-      { id: 'state:جاهز للطبخ', title: 'جاهز للطبخ' },
-      { id: 'state:مفرز', title: 'مفرز' }
+    body: `اختر النوع المناسب داخل ${rootTitle} 🌿`,
+    buttons: buttons.length ? buttons : [
+      { id: BUTTON_IDS.EXIT, title: 'خروج' }
     ]
   };
 }
 
+function categoryListForRoot(rootTitle = 'القسم', rootId, options = [], page = 0) {
+  const rows = paginateRows(
+    options.map(option => ({
+      id: `category:${rootId}:${slugify(option.value)}`,
+      title: shortButton(option.label),
+      description: `${option.count} صنف`
+    })),
+    page,
+    9,
+    nextPage => `category_page:${rootId}:${nextPage}`
+  );
+
+  return listMessage(
+    `اختر التصنيف المناسب داخل ${rootTitle} 🌿`,
+    'التصنيفات',
+    rootTitle,
+    rows
+  );
+}
+
 function itemList(rootDir, filters = {}, page = 0) {
   const items = getItemsForRoot(rootDir, filters);
-  const pageSize = 10;
-  const start = page * pageSize;
-  const subset = items.slice(start, start + pageSize);
-  const rows = subset.map(item => ({
-    id: `item:${item.record_id}`,
-    title: shortButton(item.display_name_ar || item.item_name_ar),
-    description: `${money(item.price_1_jod)} — ${item.unit_ar}`
-  }));
+  const rows = paginateRows(
+    items.map(item => ({
+      id: `item:${item.record_id}`,
+      title: shortButton(item.item_name_ar || item.display_name_ar),
+      description: `${money(item.price_1_jod)} — ${baseUnitLabel(item)}`
+    })),
+    page,
+    9,
+    nextPage => `items_page:${nextPage}`
+  );
 
-  if (start + pageSize < items.length) {
-    rows.push({ id: `items_page:${page + 1}`, title: 'المزيد', description: 'عرض أصناف إضافية' });
-  }
-
-  return {
-    type: 'list',
-    body: 'اختر الصنف المناسب، وبعدها ننتقل للكمية والإضافات 🌿',
-    buttonText: 'اختيار الصنف',
-    sections: [{ title: 'الأصناف', rows }]
-  };
+  return listMessage(
+    'اختر الصنف المناسب، وبعدها ننتقل للكمية والإضافات 🌿',
+    'الأصناف',
+    'الأصناف',
+    rows
+  );
 }
 
 function quantityButtons(item) {
   return {
     type: 'button',
-    body: `اختر الكمية المطلوبة من ${item.display_name_ar || item.item_name_ar}.\nالسعر للوحدة: ${money(item.price_1_jod)}`,
+    body: `${item.display_name_ar || item.item_name_ar}\nالسعر: ${money(item.price_1_jod)} للوحدة\nالوحدة: ${baseUnitLabel(item)}\nاختر الكمية المطلوبة.`,
     buttons: [
-      { id: `qty:${item.record_id}:1`, title: `1 × ${shortButton(item.unit_ar)}` },
-      { id: `qty:${item.record_id}:2`, title: `2 × ${shortButton(item.unit_ar)}` },
-      { id: `qty:${item.record_id}:3`, title: `3 × ${shortButton(item.unit_ar)}` }
+      { id: `qty:${item.record_id}:1`, title: quantityButtonLabel(item, 1) },
+      { id: `qty:${item.record_id}:2`, title: quantityButtonLabel(item, 2) },
+      { id: `qty:${item.record_id}:3`, title: quantityButtonLabel(item, 3) }
     ]
   };
 }
 
-function extrasButtons(item, extras = []) {
+function extrasList(item, extras = []) {
   const rows = extras.map(extra => ({
-    id: `extra:${item.record_id}:${slugify(extra.label)}`,
+    id: `extra:${item.record_id}:${extra.id}`,
     title: shortButton(extra.label),
-    description: `${money(extra.price || 0)}`
+    description: `${money(extra.price)}`
   }));
 
-  rows.push({ id: BUTTON_IDS.ADD_MORE, title: 'إضافة', description: 'بدون إضافات جديدة' });
+  rows.push({
+    id: BUTTON_IDS.ADD_MORE,
+    title: 'بدون إضافة',
+    description: 'الانتقال للسلة'
+  });
 
-  return {
-    type: 'list',
-    body: `يمكنك إضافة خيارات مرتبطة بـ ${item.display_name_ar || item.item_name_ar} 🌿`,
-    buttonText: 'الإضافات',
-    sections: [{ title: 'إضافات', rows }]
-  };
+  return listMessage(
+    `هل تريد إضافة شيء على ${item.item_name_ar || item.display_name_ar}؟`,
+    'الإضافات',
+    'الإضافات',
+    rows
+  );
 }
 
 function cartSummary(cart = [], draft = {}) {
-  const lines = (cart || []).map((item, index) => `${index + 1}. ${item.displayNameAr} × ${item.quantity} = ${money(item.lineTotalJod)}`);
   const subtotal = (cart || []).reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const deliveryFee = Number(draft.deliveryFeeJod || 0);
   const total = subtotal + deliveryFee;
+  const lines = cart.map((item, index) => {
+    const extrasLabel = item.extras?.length ? ` + ${item.extras.map(extra => extra.label).join(' + ')}` : '';
+    return `${index + 1}. ${item.displayNameAr} × ${item.quantity}${extrasLabel} = ${money(item.lineTotalJod)}`;
+  });
 
   return {
     subtotal,
     deliveryFee,
     total,
-    text: `هذا ملخص طلبك 🌿\n\n${lines.join('\n') || 'لا توجد أصناف'}\n\n${deliveryFee ? `رسوم التوصيل: ${money(deliveryFee)}\n` : ''}الإجمالي الحالي: ${money(total)}\n\nإذا كان كل شيء مناسبًا اضغط: متابعة`
+    text: `سلة الطلب 🌿\n\n${lines.join('\n') || 'لا توجد أصناف'}\n\n${deliveryFee ? `رسوم التوصيل: ${money(deliveryFee)}\n` : ''}الإجمالي الحالي: ${money(total)}`
   };
 }
 
 function cartButtons(summaryText) {
   return {
     type: 'button',
-    body: summaryText,
+    body: `${summaryText}\n\nاختر الخطوة التالية.`,
     buttons: [
       { id: BUTTON_IDS.ADD_MORE, title: 'إضافة' },
       { id: BUTTON_IDS.CHECKOUT, title: 'متابعة' },
@@ -507,18 +494,16 @@ function cartButtons(summaryText) {
 }
 
 function dayList() {
-  const base = new Date();
+  const now = new Date();
   const rows = [];
-
   for (let i = 0; i < 5; i += 1) {
-    const date = new Date(base);
-    date.setDate(base.getDate() + i);
-    const label =
-      i === 0
-        ? 'اليوم'
-        : i === 1
-          ? 'غدًا'
-          : date.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'numeric' });
+    const date = new Date(now);
+    date.setDate(now.getDate() + i);
+    const label = i === 0
+      ? 'اليوم'
+      : i === 1
+        ? 'غدًا'
+        : date.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'numeric' });
 
     rows.push({
       id: `day:${date.toISOString().slice(0, 10)}:${label}`,
@@ -527,88 +512,93 @@ function dayList() {
     });
   }
 
-  return {
-    type: 'list',
-    body: 'اختر يوم التنفيذ أو التوصيل المناسب 🌿',
-    buttonText: 'اختيار اليوم',
-    sections: [{ title: 'الأيام', rows }]
-  };
+  return listMessage(
+    'اختر اليوم المناسب للتنفيذ أو التوصيل 🌿',
+    'الأيام',
+    'الأيام المتاحة',
+    rows
+  );
 }
 
 function slotList(config) {
-  const slots = config.orderWindow?.deliveryTimeSlots || [];
-  return {
-    type: 'list',
-    body: 'اختر الوقت المناسب وسنكمل مباشرة 🌿',
-    buttonText: 'اختيار الوقت',
-    sections: [{
-      title: 'أوقات التوصيل',
-      rows: slots.map(slot => ({
-        id: `slot:${slot}`,
-        title: shortButton(slot),
-        description: 'موعد التوصيل'
-      }))
-    }]
-  };
+  const slots = config?.deliveryTimeSlots || config?.orderWindow?.deliveryTimeSlots || [
+    '10:00 - 12:00',
+    '12:00 - 14:00',
+    '14:00 - 16:00',
+    '16:00 - 18:00'
+  ];
+
+  return listMessage(
+    'اختر الوقت المناسب 🌿',
+    'الأوقات',
+    'أوقات التوصيل',
+    slots.map(slot => ({
+      id: `slot:${slot}`,
+      title: shortButton(slot),
+      description: 'موعد التنفيذ'
+    }))
+  );
 }
 
 function deliveryTypeButtons() {
   return {
     type: 'button',
-    body: 'حدد طريقة الاستلام المناسبة لطلبك 🌿',
+    body: 'هل تريد توصيل أم استلام؟',
     buttons: [
       { id: BUTTON_IDS.DELIVERY, title: 'توصيل' },
       { id: BUTTON_IDS.PICKUP, title: 'استلام' },
-      { id: BUTTON_IDS.HUMAN, title: 'موظف' }
+      { id: BUTTON_IDS.EXIT, title: 'خروج' }
     ]
   };
 }
 
 function sectorList(rootDir) {
   const groups = getDeliveryGroupList(rootDir);
-  return {
-    type: 'list',
-    body: 'اختر المحافظة أو القطاع أولًا 🌿',
-    buttonText: 'اختيار القطاع',
-    sections: [{
-      title: 'القطاعات',
-      rows: groups.slice(0, 10).map(group => ({
-        id: `sector:${group.key}:0`,
-        title: shortButton(group.group),
-        description: `${group.zones.length} منطقة`
-      }))
-    }]
-  };
+  const rows = paginateRows(
+    groups.map(group => ({
+      id: `sector:${group.key}:0`,
+      title: shortButton(group.title),
+      description: `${group.count} منطقة`
+    })),
+    0,
+    9,
+    nextPage => `sector_page:${nextPage}`
+  );
+
+  return listMessage(
+    'اختر القطاع أو المحافظة أولًا 🌿',
+    'القطاعات',
+    'القطاعات',
+    rows
+  );
 }
 
 function zoneList(rootDir, sectorKey, page = 0) {
   const group = getDeliveryGroupByKey(rootDir, sectorKey);
   const zones = group?.zones || [];
-  const pageSize = 10;
-  const start = page * pageSize;
-  const subset = zones.slice(start, start + pageSize);
-  const rows = subset.map(zone => ({
-    id: `zone:${zone.zone_id}`,
-    title: shortButton(zone.zone_name_ar),
-    description: `رسوم ${money(zone.delivery_fee_jod)}`
-  }));
+  const rows = paginateRows(
+    zones.map(zone => ({
+      id: `zone:${zone.zone_id}`,
+      title: shortButton(zone.zone_name_ar),
+      description: `رسوم ${money(zone.delivery_fee_jod)}`
+    })),
+    page,
+    9,
+    nextPage => `sector:${sectorKey}:${nextPage}`
+  );
 
-  if (start + pageSize < zones.length) {
-    rows.push({ id: `sector:${sectorKey}:${page + 1}`, title: 'المزيد', description: 'عرض مناطق إضافية' });
-  }
-
-  return {
-    type: 'list',
-    body: `اختر المنطقة داخل ${group?.group || 'القطاع'} 🌿`,
-    buttonText: 'اختيار المنطقة',
-    sections: [{ title: group?.group || 'المناطق', rows }]
-  };
+  return listMessage(
+    `اختر المنطقة داخل ${group?.group || 'القطاع'} 🌿`,
+    'المناطق',
+    group?.group || 'المناطق',
+    rows
+  );
 }
 
 function paymentButtons() {
   return {
     type: 'button',
-    body: 'اختر طريقة الدفع المناسبة 🌿',
+    body: 'اختر طريقة الدفع المناسبة.',
     buttons: [
       { id: BUTTON_IDS.PAY_CASH, title: 'كاش' },
       { id: BUTTON_IDS.HUMAN, title: 'موظف' },
@@ -632,9 +622,12 @@ function notesButtons() {
 function buildCustomerFinalSummary(cart = [], draft = {}) {
   const summary = cartSummary(cart, draft);
   const lines = [
-    'ملخصك النهائي 🌿',
+    'ملخص الطلب النهائي 🌿',
     '',
-    ...((cart || []).map((item, index) => `${index + 1}. ${item.displayNameAr} × ${item.quantity} = ${money(item.lineTotalJod)}`)),
+    ...cart.map((item, index) => {
+      const extrasLabel = item.extras?.length ? ` + ${item.extras.map(extra => extra.label).join(' + ')}` : '';
+      return `${index + 1}. ${item.displayNameAr} × ${item.quantity}${extrasLabel} = ${money(item.lineTotalJod)}`;
+    }),
     '',
     `اليوم: ${draft.deliveryDayLabel || 'غير محدد'}`,
     `الوقت: ${draft.deliverySlot || 'غير محدد'}`,
@@ -664,37 +657,17 @@ function customerSummaryButtons(summaryText) {
 }
 
 function editList() {
-  return {
-    type: 'list',
-    body: 'اختر الجزء الذي تريد تعديله 🌿',
-    buttonText: 'اختيار التعديل',
-    sections: [{
-      title: 'التعديل',
-      rows: [
-        { id: BUTTON_IDS.EDIT_ITEMS, title: 'الأصناف', description: 'إضافة أو تعديل الأصناف' },
-        { id: BUTTON_IDS.EDIT_SCHEDULE, title: 'الموعد', description: 'تعديل اليوم أو الوقت' },
-        { id: BUTTON_IDS.EDIT_ZONE, title: 'المنطقة', description: 'تعديل المنطقة والعنوان' },
-        { id: BUTTON_IDS.EDIT_NOTES, title: 'الملاحظات', description: 'تعديل الملاحظات' }
-      ]
-    }]
-  };
-}
-
-function adminOrderSummary(order, items = []) {
-  const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod)}`);
-  return [
-    'طلب جديد يحتاج اعتماد 🌿',
-    `رقم الطلب: ${order.id}`,
-    `العميل: ${order.customer_name || 'غير مسجل'}`,
-    `الهاتف: ${order.phone}`,
-    '',
-    ...lines,
-    '',
-    `الإجمالي: ${money(order.total_jod)}`,
-    order.delivery_slot ? `الموعد: ${order.delivery_slot}` : null,
-    order.address_text ? `العنوان: ${order.address_text}` : null,
-    order.order_notes ? `الملاحظات: ${order.order_notes}` : null
-  ].filter(Boolean).join('\n');
+  return listMessage(
+    'اختر الجزء الذي تريد تعديله 🌿',
+    'التعديل',
+    'التعديل',
+    [
+      { id: BUTTON_IDS.EDIT_ITEMS, title: 'الأصناف', description: 'إضافة أو تعديل الأصناف' },
+      { id: BUTTON_IDS.EDIT_SCHEDULE, title: 'الموعد', description: 'تعديل اليوم أو الوقت' },
+      { id: BUTTON_IDS.EDIT_ZONE, title: 'المنطقة', description: 'تعديل المنطقة والعنوان' },
+      { id: BUTTON_IDS.EDIT_NOTES, title: 'الملاحظات', description: 'تعديل الملاحظات' }
+    ]
+  );
 }
 
 function adminDecisionButtons(orderId) {
@@ -731,7 +704,7 @@ function textIntent(text = '') {
   }
 
   if (
-    /(المنيو|القائمه|الاصناف|عرض المنيو|اعرض المنيو)/.test(normalized) ||
+    /(المنيو|القائمه|الاصناف|الاقسام|عرض المنيو|اعرض المنيو)/.test(normalized) ||
     /(^|\s)(menu|show menu|catalog)(\s|$)/.test(normalized)
   ) {
     return 'menu';
@@ -751,14 +724,101 @@ function textIntent(text = '') {
     return 'human';
   }
 
-  if (
-    TRACK_TERMS.test(text) ||
-    /(تتبع|حاله|متابعه|حاله طلبي|وين طلبي|طلبي وين|وين الطلب)/.test(normalized)
-  ) {
+  if (TRACK_TERMS.test(text) || /(وين طلبي|وين الطلب|طلبي وين)/.test(normalized)) {
     return 'track';
   }
 
   return 'text';
+}
+
+function readIncomingSelection(message, rootDir = '') {
+  if (message.type === 'interactive' && message.interactive?.type === 'button_reply') {
+    return message.interactive.button_reply?.id || '';
+  }
+
+  if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
+    return message.interactive.list_reply?.id || '';
+  }
+
+  const rawText = String(message.text?.body || '').trim();
+  const simple = normalizeUserText(rawText);
+
+  if (!simple) return '';
+
+  const exactMap = {
+    العربيه: BUTTON_IDS.AR,
+    عربي: BUTTON_IDS.AR,
+    arabic: BUTTON_IDS.AR,
+    english: BUTTON_IDS.EN,
+    انجليزي: BUTTON_IDS.EN,
+    انجليزيه: BUTTON_IDS.EN,
+    اوافق: BUTTON_IDS.CONSENT_YES,
+    خدمه: BUTTON_IDS.CONSENT_SERVICE_ONLY,
+    'خدمه فقط': BUTTON_IDS.CONSENT_SERVICE_ONLY,
+    'لا اوافق': BUTTON_IDS.CONSENT_NO,
+    اطلب: BUTTON_IDS.START_ORDER,
+    'اطلب الان': BUTTON_IDS.START_ORDER,
+    'ابدا الطلب': BUTTON_IDS.START_ORDER,
+    'طلب جديد': BUTTON_IDS.START_ORDER,
+    المنيو: BUTTON_IDS.SHOW_MENU,
+    القائمه: BUTTON_IDS.SHOW_MENU,
+    الاقسام: BUTTON_IDS.SHOW_MENU,
+    الاصناف: BUTTON_IDS.SHOW_MENU,
+    تتبع: BUTTON_IDS.TRACK_ORDER,
+    متابعه: BUTTON_IDS.TRACK_ORDER,
+    'تتبع طلبي': BUTTON_IDS.TRACK_ORDER,
+    موظف: BUTTON_IDS.HUMAN,
+    'موظف مباشر': BUTTON_IDS.HUMAN,
+    اضافه: BUTTON_IDS.ADD_MORE,
+    'متابعه السله': BUTTON_IDS.CHECKOUT,
+    'متابعه الطلب': BUTTON_IDS.TRACK_ORDER,
+    الغاء: BUTTON_IDS.CLEAR_CART,
+    توصيل: BUTTON_IDS.DELIVERY,
+    استلام: BUTTON_IDS.PICKUP,
+    كاش: BUTTON_IDS.PAY_CASH,
+    ملاحظات: BUTTON_IDS.NOTES_ADD,
+    'بدون ملاحظات': BUTTON_IDS.NOTES_SKIP,
+    تاكيد: BUTTON_IDS.CUSTOMER_CONFIRM,
+    تعديل: BUTTON_IDS.CUSTOMER_EDIT,
+    خروج: BUTTON_IDS.EXIT,
+    الموعد: BUTTON_IDS.EDIT_SCHEDULE,
+    المنطقه: BUTTON_IDS.EDIT_ZONE,
+    الملاحظات: BUTTON_IDS.EDIT_NOTES
+  };
+
+  if (exactMap[simple]) return exactMap[simple];
+
+  if (
+    /(المنيو|القائمه|الاصناف|الاقسام|عرض المنيو|اعرض المنيو)/.test(simple) ||
+    /(^|\s)(menu|show menu|catalog)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.SHOW_MENU;
+  }
+
+  if (
+    /(اطلب|ابدا الطلب|طلب جديد|بدي اطلب|ابغى اطلب|اريد الطلب|اريد اطلب)/.test(simple) ||
+    /(^|\s)(order|start order|new order|buy)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.START_ORDER;
+  }
+
+  if (TRACK_TERMS.test(simple) || /(وين طلبي|وين الطلب|طلبي وين)/.test(simple)) {
+    return BUTTON_IDS.TRACK_ORDER;
+  }
+
+  if (
+    /(موظف|خدمه العملاء|الدعم|تواصل مباشر)/.test(simple) ||
+    /(^|\s)(agent|human|support|customer service)(\s|$)/.test(simple)
+  ) {
+    return BUTTON_IDS.HUMAN;
+  }
+
+  if (rootDir && rawText) {
+    const directItem = getMenuItemById(rootDir, rawText);
+    if (directItem) return `item:${directItem.record_id}`;
+  }
+
+  return '';
 }
 
 async function sendWhatsAppPayload(to, payload) {
@@ -781,7 +841,6 @@ async function sendWhatsAppPayload(to, payload) {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       Accept: 'application/json',
-      'Accept-Charset': 'utf-8',
       Authorization: `Bearer ${accessToken}`
     },
     body: Buffer.from(requestBody, 'utf8')
@@ -807,10 +866,10 @@ async function sendWhatsAppText(rootDir, to, body) {
   try {
     await saveOutgoingMessage(rootDir, {
       id: crypto.randomUUID(),
-      phone: to,
-      message_type: 'text',
-      content: body,
-      raw_payload: result.data || null
+      to,
+      type: 'text',
+      text: body,
+      payload: result.data || null
     });
   } catch (error) {
     console.error('MESSAGES_LOG_SUPABASE_ERROR', error);
@@ -895,28 +954,25 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
       message: error?.message || null,
       interactive
     });
-
     return sendWhatsAppText(rootDir, to, interactiveFallbackText(interactive));
   }
 
-  const payload = { type: 'interactive', interactive: normalized };
-  const result = await sendWhatsAppPayload(to, payload);
+  const result = await sendWhatsAppPayload(to, { type: 'interactive', interactive: normalized });
 
   logWebhook('OUTGOING_INTERACTIVE', {
     to,
     status: result.status || null,
     metaError: result.data?.error || null,
-    type: normalized.type,
-    body: normalized.body?.text || null
+    type: normalized.type
   });
 
   try {
     await saveOutgoingMessage(rootDir, {
       id: crypto.randomUUID(),
-      phone: to,
-      message_type: `interactive_${normalized.type}`,
-      content: normalized.body?.text || '',
-      raw_payload: {
+      to,
+      type: `interactive_${normalized.type}`,
+      text: normalized.body?.text || '',
+      payload: {
         request_interactive: normalized,
         response: result.data || null,
         status: result.status || null
@@ -927,27 +983,95 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
   }
 
   if (!result.status || result.status < 200 || result.status >= 300) {
-    console.error('WHATSAPP_SEND_ERROR', {
-      to,
-      status: result.status || null,
-      data: result.data || null,
-      request_interactive: normalized
-    });
-
     return sendWhatsAppText(rootDir, to, interactiveFallbackText(interactive));
   }
 
   return result;
 }
 
+function currentRootTitle(rootId) {
+  return getRootById(rootId)?.title || 'القسم';
+}
+
+async function promptRootFlow(rootDir, to, session, rootId, page = 0) {
+  const sessionData = readSessionData(session);
+  const draft = sessionData.orderDraft || defaultDraft();
+  const resolvedRoot = resolveRootId(rootId || draft.rootId);
+
+  if (!resolvedRoot) {
+    return sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0));
+  }
+
+  if (resolvedRoot === 'meat' && !draft.meatType) {
+    const typeOptions = getRootTypeOptions(rootDir, resolvedRoot);
+    return sendWhatsAppInteractive(rootDir, to, typeButtonsForRoot('قسم اللحوم', typeOptions));
+  }
+
+  if (['mahashi', 'yalangi', 'maftoul'].includes(resolvedRoot) && !draft.statusFilter) {
+    const statusOptions = getRootStatusOptions(rootDir, resolvedRoot).filter(option => ['ready', 'raw'].includes(option.value));
+    return sendWhatsAppInteractive(rootDir, to, statusButtonsForRoot(currentRootTitle(resolvedRoot), statusOptions));
+  }
+
+  if (resolvedRoot === 'bundles' && !draft.categoryFilter) {
+    const categoryOptions = getRootCategoryOptions(rootDir, resolvedRoot, draft);
+    return sendWhatsAppInteractive(rootDir, to, categoryListForRoot(currentRootTitle(resolvedRoot), resolvedRoot, categoryOptions, page));
+  }
+
+  if (resolvedRoot === 'bundles' && draft.categoryFilter && !draft.meatType) {
+    const typeOptions = getRootTypeOptions(rootDir, resolvedRoot, draft);
+    if (typeOptions.length > 1) {
+      return sendWhatsAppInteractive(rootDir, to, typeButtonsForRoot(currentRootTitle(resolvedRoot), typeOptions));
+    }
+  }
+
+  if (resolvedRoot === 'catering' && !draft.categoryFilter) {
+    const categoryOptions = getRootCategoryOptions(rootDir, resolvedRoot, draft);
+    return sendWhatsAppInteractive(rootDir, to, categoryListForRoot(currentRootTitle(resolvedRoot), resolvedRoot, categoryOptions, page));
+  }
+
+  if (resolvedRoot === 'catering' && draft.categoryFilter && !draft.meatType) {
+    const typeOptions = getRootTypeOptions(rootDir, resolvedRoot, draft);
+    return sendWhatsAppInteractive(rootDir, to, typeButtonsForRoot(currentRootTitle(resolvedRoot), typeOptions));
+  }
+
+  return sendWhatsAppInteractive(rootDir, to, itemList(rootDir, draft, page));
+}
+
+async function sendMainMenu(rootDir, to, session) {
+  return sendWhatsAppInteractive(rootDir, to, mainMenuButtons(session?.preferred_language || 'ar'));
+}
+
+function extractCategoryValue(rootDir, rootId, slugValue, draft = {}) {
+  const options = getRootCategoryOptions(rootDir, rootId, draft);
+  return options.find(option => slugify(option.value) === slugify(slugValue))?.value || null;
+}
+
+function extractTypeValue(rootDir, rootId, slugValue, draft = {}) {
+  const options = getRootTypeOptions(rootDir, rootId, draft);
+  return options.find(option => slugify(option.value) === slugify(slugValue))?.value || null;
+}
+
 async function notifyAdminsNewOrder(rootDir, order, config) {
   const items = await getOrderItems(rootDir, order.id);
   const admins = getAdminNumbers(config);
-  const summary = adminOrderSummary(order, items);
+
+  const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod)}`);
+  const summary = [
+    'طلب جديد يحتاج اعتماد 🌿',
+    `رقم الطلب: ${order.id}`,
+    `الهاتف: ${order.phone}`,
+    '',
+    ...lines,
+    '',
+    `الإجمالي: ${money(order.total_jod)}`,
+    order.delivery_slot ? `الموعد: ${order.delivery_slot}` : null,
+    order.address_text ? `العنوان: ${order.address_text}` : null,
+    order.order_notes ? `الملاحظات: ${order.order_notes}` : null
+  ].filter(Boolean).join('\n');
 
   for (const adminPhone of admins) {
-    await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id));
     await sendWhatsAppText(rootDir, adminPhone, summary);
+    await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id));
   }
 }
 
@@ -966,7 +1090,7 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session) {
     consent_status: session?.consent_status || 'pending'
   });
 
-  let orderId = sessionData.lastOrderId;
+  let orderId = sessionData.lastOrderId || null;
   let existingOrder = null;
 
   if (draft.revisionOrderId) {
@@ -974,77 +1098,72 @@ async function createOrUpdateOrderFromDraft(rootDir, phone, session) {
     orderId = existingOrder?.id || draft.revisionOrderId;
   }
 
-  if (!orderId) orderId = await generateNextOrderCode(rootDir, 'MAE');
+  if (!orderId) orderId = await generateNextOrderCode(rootDir);
 
   const subtotal = cart.reduce((sum, item) => sum + Number(item.lineTotalJod || 0), 0);
   const deliveryFee = Number(draft.deliveryType === 'delivery' ? draft.deliveryFeeJod || 0 : 0);
   const total = subtotal + deliveryFee;
 
-  const orderPayload = {
+  const items = cart.map(item => ({
+    id: item.id,
+    display_name_ar: item.displayNameAr,
+    quantity: item.quantity,
+    unit_ar: item.unit_ar,
+    price_1_jod: item.price_1_jod,
+    lineTotalJod: item.lineTotalJod,
+    notes: item.notes || (item.extras?.length ? item.extras.map(extra => extra.label).join(' + ') : null)
+  }));
+
+  const payload = {
     id: orderId,
-    customer_id: customer?.id || null,
-    customer_name: customer?.full_name || null,
+    customerId: customer?.id || null,
+    customerName: customer?.full_name || 'عميل مطبخ اليوم',
     phone,
+    items,
+    notes: draft.notes || null,
+    address: draft.address || null,
+    deliveryDay: draft.deliveryDayLabel || null,
+    deliverySlot: draft.deliverySlot || null,
+    deliveryType: draft.deliveryType || 'delivery',
+    deliverySector: draft.sectorTitle || null,
+    deliveryZoneId: draft.zoneId || null,
+    deliveryZoneName: draft.zoneName || null,
+    paymentMethod: draft.paymentMethod || 'cash',
     status: 'awaiting_admin_review',
-    status_label_ar: 'بانتظار اعتماد الإدارة',
-    delivery_type: draft.deliveryType || 'delivery',
-    delivery_slot: `${draft.deliveryDayLabel || ''} — ${draft.deliverySlot || ''}`.trim(),
-    payment_method: draft.paymentMethod || 'cash',
-    payment_status: 'pending',
-    address_text: draft.address || null,
-    order_notes: draft.notes || null,
-    admin_notes: null,
-    subtotal_jod: subtotal,
-    delivery_fee_jod: deliveryFee,
-    total_jod: total,
-    approved_by_phone: null,
-    approved_at: null,
-    items: cart.map(item => ({
-      menu_item_id: item.id,
-      display_name_ar: item.displayNameAr,
-      quantity: item.quantity,
-      unit_ar: item.unit_ar,
-      unit_price_jod: item.price_1_jod,
-      line_total_jod: item.lineTotalJod,
-      notes: item.notes || null
-    }))
+    statusLabelAr: 'بانتظار اعتماد الإدارة',
+    subtotalJod: subtotal,
+    deliveryFeeJod: deliveryFee,
+    totalJod: total,
+    createdAt: existingOrder?.created_at || existingOrder?.createdAt || nowIso(),
+    updatedAt: nowIso()
   };
 
   const order = existingOrder
-    ? await replaceOrder(rootDir, orderId, orderPayload)
-    : await createOrder(rootDir, orderPayload);
+    ? await replaceOrder(rootDir, orderId, payload)
+    : await createOrder(rootDir, payload);
 
   await persistSession(rootDir, phone, session, {
     currentState: 'awaiting_admin_review',
     lastOrderId: order.id,
     sessionData: {
-      cart: [],
-      selectedSection: null,
-      itemPage: 0,
-      pendingItemId: null,
-      awaiting: null,
-      dayOptions: [],
-      lastPrompt: null,
-      lastOrderId: order.id,
-      orderDraft: { ...defaultDraft(), revisionOrderId: null }
+      ...resetDraftKeepingSession(),
+      lastOrderId: order.id
     }
   });
 
   return { order };
 }
 
-async function handleAdminAction(rootDir, from, selection, config) {
+async function handleAdminAction(rootDir, from, selection) {
   const [action, orderId] = selection.split(':');
   const order = await getOrderById(rootDir, orderId);
 
   if (!order) return { ok: false, message: 'تعذر العثور على الطلب المطلوب.' };
 
   if (action === BUTTON_IDS.ADMIN_APPROVE) {
-    await updateOrderStatus(rootDir, orderId, {
-      status: 'approved',
-      status_label_ar: 'تم اعتماد الطلب',
-      approved_by_phone: from,
-      approved_at: nowIso()
+    await updateOrderStatus(rootDir, orderId, 'approved', 'تم اعتماد الطلب', {
+      approvedByPhone: from,
+      approvedAt: nowIso()
     });
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('approved', orderId));
     await sendWhatsAppInteractive(rootDir, from, adminOpsButtons(orderId));
@@ -1052,49 +1171,35 @@ async function handleAdminAction(rootDir, from, selection, config) {
   }
 
   if (action === BUTTON_IDS.ADMIN_MODIFY) {
-    const updated = await updateOrderStatus(rootDir, orderId, {
-      status: 'awaiting_customer_edit',
-      status_label_ar: 'بانتظار تعديل العميل',
-      admin_notes: 'يرجى مراجعة تفاصيل الطلب مع العميل قبل الاعتماد.'
+    await updateOrderStatus(rootDir, orderId, 'awaiting_customer_edit', 'بانتظار تعديل العميل', {
+      adminNotes: 'يرجى مراجعة تفاصيل الطلب مع العميل قبل الاعتماد.'
     });
-
-    const session = await getConversationSession(rootDir, order.phone);
-    await persistSession(rootDir, order.phone, session, {
-      currentState: 'review_customer_summary',
-      sessionData: {
-        lastOrderId: orderId,
-        orderDraft: { ...defaultDraft(), revisionOrderId: orderId }
-      }
-    });
-
-    await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('awaiting_customer_edit', orderId, updated?.admin_notes));
-    return { ok: true, message: 'تم تحويل الطلب إلى تعديل العميل.' };
+    await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('awaiting_customer_edit', orderId, 'يرجى مراجعة تفاصيل الطلب مع الموظف أو إعادة إرسال التعديلات.'));
+    return { ok: true, message: 'تم طلب تعديل الطلب من العميل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_REJECT) {
-    await updateOrderStatus(rootDir, orderId, {
-      status: 'rejected',
-      status_label_ar: 'مرفوض',
-      admin_notes: 'اعتذار منكم، يمكن إعادة ترتيب الطلب من جديد.'
+    await updateOrderStatus(rootDir, orderId, 'rejected', 'مرفوض', {
+      adminNotes: 'اعتذار منكم، يمكن إعادة ترتيب الطلب من جديد.'
     });
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('rejected', orderId));
     return { ok: true, message: 'تم رفض الطلب وإشعار العميل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_PREPARING) {
-    await updateOrderStatus(rootDir, orderId, { status: 'preparing', status_label_ar: 'قيد التحضير' });
+    await updateOrderStatus(rootDir, orderId, 'preparing', 'قيد التحضير');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('preparing', orderId));
     return { ok: true, message: 'تم تحديث الطلب إلى قيد التحضير.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_READY) {
-    await updateOrderStatus(rootDir, orderId, { status: 'ready', status_label_ar: 'جاهز' });
+    await updateOrderStatus(rootDir, orderId, 'ready', 'جاهز');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('ready', orderId));
     return { ok: true, message: 'تم تحديث الطلب إلى جاهز.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_OUT) {
-    await updateOrderStatus(rootDir, orderId, { status: 'out_for_delivery', status_label_ar: 'قيد التوصيل' });
+    await updateOrderStatus(rootDir, orderId, 'out_for_delivery', 'قيد التوصيل');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('out_for_delivery', orderId));
     await sendWhatsAppInteractive(rootDir, from, {
       type: 'button',
@@ -1105,7 +1210,7 @@ async function handleAdminAction(rootDir, from, selection, config) {
   }
 
   if (action === BUTTON_IDS.ADMIN_DELIVERED) {
-    await updateOrderStatus(rootDir, orderId, { status: 'delivered', status_label_ar: 'تم التسليم' });
+    await updateOrderStatus(rootDir, orderId, 'delivered', 'تم التسليم');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('delivered', orderId));
     return { ok: true, message: 'تم إغلاق الطلب على أنه تم التسليم.' };
   }
@@ -1115,14 +1220,6 @@ async function handleAdminAction(rootDir, from, selection, config) {
 
 export async function processWhatsAppWebhook(rootDir, req, res, config) {
   try {
-    const safeHost = getSafeHost(req);
-
-    logWebhook('HTTP_WEBHOOK_REQUEST', {
-      method: req?.method || 'POST',
-      pathname: new URL(req?.url || '/api/webhooks/whatsapp', `http://${safeHost}`).pathname,
-      time: nowIso()
-    });
-
     const body = await parseBody(req);
     const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
     const message = value.messages?.[0] || null;
@@ -1149,11 +1246,11 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     try {
       await saveIncomingMessage(rootDir, {
-        id: message.id,
-        phone: from,
-        message_type: type,
-        content: type === 'text' ? text : type === 'location' ? buildLocationText(message) : JSON.stringify(message),
-        raw_payload: message
+        id: message.id || crypto.randomUUID(),
+        from,
+        type,
+        text: type === 'text' ? text : type === 'location' ? buildLocationText(message) : JSON.stringify(message),
+        payload: message
       });
     } catch (error) {
       console.error('MESSAGES_LOG_SUPABASE_ERROR', error);
@@ -1170,9 +1267,9 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         selection.startsWith(BUTTON_IDS.ADMIN_OUT) ||
         selection.startsWith(BUTTON_IDS.ADMIN_DELIVERED)
       ) {
-        const outcome = await handleAdminAction(rootDir, from, selection, config);
-        const result = await sendWhatsAppText(rootDir, to, outcome.message);
-        return json(res, 200, { ok: true, delivered: result, mode: 'admin_action' });
+        const outcome = await handleAdminAction(rootDir, from, selection);
+        const delivered = await sendWhatsAppText(rootDir, to, outcome.message);
+        return json(res, 200, { ok: true, delivered, mode: 'admin_action' });
       }
     }
 
@@ -1182,11 +1279,11 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       if (command === '/pending') {
         const orders = await getOrdersByStatus(rootDir, 'awaiting_admin_review');
         const bodyText = orders.length
-          ? ['طلبات بانتظار الاعتماد 🌿', '', ...orders.slice(0, 10).map(order => `${order.id} — ${order.phone} — ${money(order.total_jod)}`)].join('\n')
+          ? ['طلبات بانتظار الاعتماد 🌿', '', ...orders.slice(0, 10).map(order => `${order.id} — ${order.phone} — ${money(order.total_jod || order.totalJod)}`)].join('\n')
           : 'لا توجد طلبات بانتظار الاعتماد حاليًا.';
 
-        const result = await sendWhatsAppText(rootDir, to, bodyText);
-        return json(res, 200, { ok: true, delivered: result, mode: 'admin_pending' });
+        const delivered = await sendWhatsAppText(rootDir, to, bodyText);
+        return json(res, 200, { ok: true, delivered, mode: 'admin_pending' });
       }
 
       if (command.startsWith('/view ')) {
@@ -1194,29 +1291,37 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         const order = await getOrderById(rootDir, orderId);
 
         if (!order) {
-          const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الطلب المطلوب.');
-          return json(res, 200, { ok: true, delivered: result, mode: 'admin_view_missing' });
+          const delivered = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الطلب المطلوب.');
+          return json(res, 200, { ok: true, delivered, mode: 'admin_view_missing' });
         }
 
         const items = await getOrderItems(rootDir, orderId);
-        const summary = adminOrderSummary(order, items);
+        const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`);
+        const summary = [
+          `رقم الطلب: ${order.id}`,
+          `الهاتف: ${order.phone}`,
+          `الحالة: ${labelFromStatus(order.status)}`,
+          '',
+          ...lines
+        ].join('\n');
+
         await sendWhatsAppText(rootDir, to, summary);
-        const result = await sendWhatsAppInteractive(rootDir, to, adminDecisionButtons(orderId));
-        return json(res, 200, { ok: true, delivered: result, mode: 'admin_view' });
+        const delivered = await sendWhatsAppInteractive(rootDir, to, adminDecisionButtons(orderId));
+        return json(res, 200, { ok: true, delivered, mode: 'admin_view' });
       }
     }
 
     let session = await getConversationSession(rootDir, from);
     let sessionData = readSessionData(session);
     let customerProfile = await getCustomerProfileSummary(rootDir, from);
-    const openOrder = await getLatestOpenOrderByPhone(rootDir, from, TERMINAL_STATUSES);
+    const openOrder = await getLatestOpenOrderByPhone(rootDir, from);
 
     if (!session) {
       session = await persistSession(rootDir, from, null, {
         currentState: 'welcome',
         preferredLanguage: 'ar',
         consentStatus: 'pending',
-        sessionData: { orderDraft: defaultDraft() }
+        sessionData: resetDraftKeepingSession()
       });
       sessionData = readSessionData(session);
       customerProfile = await getCustomerProfileSummary(rootDir, from);
@@ -1226,28 +1331,28 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     const textMode = textIntent(text);
 
     if (openOrder && !selection && TRACK_TERMS.test(text)) {
-      const result = await sendWhatsAppText(rootDir, to, mapPrepStatusToCustomer(openOrder.status, openOrder.id, openOrder.admin_notes || ''));
-      return json(res, 200, { ok: true, delivered: result, mode: 'track_open_order' });
+      const delivered = await sendWhatsAppText(rootDir, to, mapPrepStatusToCustomer(openOrder.status, openOrder.id, openOrder.admin_notes || openOrder.adminNotes || ''));
+      return json(res, 200, { ok: true, delivered, mode: 'track_open_order' });
     }
 
-    if (openOrder && !TERMINAL_STATUSES.includes(openOrder.status) && !selection && !TRACK_TERMS.test(text)) {
-      const result = await sendWhatsAppText(
-        rootDir,
-        to,
-        `لديك طلب قائم حاليًا 🌿\nرقم الطلب: ${openOrder.id}\nحالته: ${labelFromStatus(openOrder.status)}\nإذا رغبت بمتابعته أرسل: حالة طلبي`
-      );
-      return json(res, 200, { ok: true, delivered: result, mode: 'block_new_order' });
+    if (selection === BUTTON_IDS.EXIT || selection === BUTTON_IDS.CUSTOMER_EXIT) {
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'main_menu',
+        sessionData: resetDraftKeepingSession()
+      });
+      const delivered = await sendMainMenu(rootDir, to, session);
+      return json(res, 200, { ok: true, delivered, mode: 'exit_to_main' });
     }
 
     if (selection === BUTTON_IDS.HUMAN || textMode === 'human') {
       const links = buildTextLinks(config, req);
-      const result = await sendWhatsAppText(rootDir, to, `يسعدنا خدمتك 🌿\nيمكنك التواصل مع موظف مباشر على الرقم: ${links.phone}`);
-      return json(res, 200, { ok: true, delivered: result, mode: 'human' });
+      const delivered = await sendWhatsAppText(rootDir, to, `يسعدنا خدمتك 🌿\nيمكنك التواصل مع موظف مباشر على الرقم: ${links.phone}`);
+      return json(res, 200, { ok: true, delivered, mode: 'human' });
     }
 
-    if (textMode === 'welcome' && (session.current_state === 'welcome' || !session.current_state)) {
-      const result = await sendWhatsAppInteractive(rootDir, to, customerProfile.isReturning ? welcomeButtons(true) : welcomeButtons(false));
-      return json(res, 200, { ok: true, delivered: result, mode: 'welcome' });
+    if (textMode === 'welcome' && (!session.current_state || session.current_state === 'welcome')) {
+      const delivered = await sendWhatsAppInteractive(rootDir, to, customerProfile.isReturning ? welcomeButtons(true) : welcomeButtons(false));
+      return json(res, 200, { ok: true, delivered, mode: 'welcome' });
     }
 
     if (selection === BUTTON_IDS.AR || selection === BUTTON_IDS.EN) {
@@ -1255,8 +1360,8 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         currentState: 'awaiting_consent',
         preferredLanguage: selection === BUTTON_IDS.EN ? 'en' : 'ar'
       });
-      const result = await sendWhatsAppInteractive(rootDir, to, consentButtons(selection === BUTTON_IDS.EN ? 'en' : 'ar'));
-      return json(res, 200, { ok: true, delivered: result, mode: 'consent' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, consentButtons(selection === BUTTON_IDS.EN ? 'en' : 'ar'));
+      return json(res, 200, { ok: true, delivered, mode: 'consent' });
     }
 
     if ([BUTTON_IDS.CONSENT_YES, BUTTON_IDS.CONSENT_SERVICE_ONLY, BUTTON_IDS.CONSENT_NO].includes(selection)) {
@@ -1274,119 +1379,140 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       });
 
       session = await persistSession(rootDir, from, session, { currentState: 'main_menu', consentStatus });
-      const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(session?.preferred_language || 'ar'));
-      return json(res, 200, { ok: true, delivered: result, mode: 'main_menu' });
+      const delivered = await sendMainMenu(rootDir, to, session);
+      return json(res, 200, { ok: true, delivered, mode: 'main_menu' });
     }
 
-    if (
-      selection === BUTTON_IDS.SHOW_MENU ||
-      selection === BUTTON_IDS.START_ORDER ||
-      textMode === 'menu' ||
-      textMode === 'order'
-    ) {
+    if (selection === BUTTON_IDS.SHOW_MENU || selection === BUTTON_IDS.START_ORDER || textMode === 'menu' || textMode === 'order') {
       session = await persistSession(rootDir, from, session, {
         currentState: 'menu_roots',
-        sessionData: { lastPrompt: 'root' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: defaultDraft(),
+          pendingItemId: null,
+          pendingExtras: [],
+          awaiting: null
+        }
       });
-      const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
-      return json(res, 200, { ok: true, delivered: result, mode: 'menu_roots' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0));
+      return json(res, 200, { ok: true, delivered, mode: 'menu_roots' });
     }
 
     if (selection === BUTTON_IDS.TRACK_ORDER || textMode === 'track') {
-      const latest = await getLatestOpenOrderByPhone(rootDir, from, []);
-      const result = latest
-        ? await sendWhatsAppText(rootDir, to, mapPrepStatusToCustomer(latest.status, latest.id, latest.admin_notes || ''))
+      const latest = await getLatestOpenOrderByPhone(rootDir, from);
+      const delivered = latest
+        ? await sendWhatsAppText(rootDir, to, mapPrepStatusToCustomer(latest.status, latest.id, latest.admin_notes || latest.adminNotes || ''))
         : await sendWhatsAppText(rootDir, to, 'لا يوجد طلب مفتوح حاليًا على هذا الرقم 🌿');
-
-      return json(res, 200, { ok: true, delivered: result, mode: 'track' });
+      return json(res, 200, { ok: true, delivered, mode: 'track' });
     }
 
     if (selection.startsWith('roots_page:')) {
       const page = Number(selection.split(':')[1] || 0);
-      const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, page));
-      return json(res, 200, { ok: true, delivered: result, mode: 'roots_page' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, page));
+      return json(res, 200, { ok: true, delivered, mode: 'roots_page' });
     }
 
     if (selection.startsWith('root:')) {
-      const rootId = selection.split(':')[1];
+      const rootId = resolveRootId(selection.split(':')[1]);
       session = await persistSession(rootDir, from, session, {
-        currentState: rootId === 'main_meat' ? 'awaiting_meat_type' : rootId === 'main_chicken' ? 'awaiting_status_filter' : 'awaiting_items',
+        currentState: 'choosing_root_filters',
+        lastMenuSection: rootId,
         sessionData: {
-          selectedSection: rootId,
-          orderDraft: { rootId, meatType: null, statusFilter: null, categoryFilter: null },
-          itemPage: 0,
-          lastPrompt: rootId === 'main_meat' ? 'meat' : rootId === 'main_chicken' ? 'status' : 'items'
+          ...sessionData,
+          pendingItemId: null,
+          pendingExtras: [],
+          awaiting: null,
+          orderDraft: {
+            ...defaultDraft(),
+            rootId
+          }
         }
       });
 
-      if (rootId === 'main_meat') {
-        const result = await sendWhatsAppInteractive(rootDir, to, meatTypeButtons('أطباق اللحوم'));
-        return json(res, 200, { ok: true, delivered: result, mode: 'meat_type' });
-      }
-
-      if (rootId === 'main_chicken') {
-        const result = await sendWhatsAppInteractive(rootDir, to, statusButtons());
-        return json(res, 200, { ok: true, delivered: result, mode: 'status_filter' });
-      }
-
-      const result = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, { rootId }, 0));
-      return json(res, 200, { ok: true, delivered: result, mode: 'items' });
+      const delivered = await promptRootFlow(rootDir, to, session, rootId, 0);
+      return json(res, 200, { ok: true, delivered, mode: 'root_selected' });
     }
 
-    if (selection.startsWith('meat:')) {
-      const meatType = selection.split(':')[1];
-      session = await persistSession(rootDir, from, session, {
-        currentState: 'awaiting_status_filter',
-        sessionData: { orderDraft: { meatType }, lastPrompt: 'status' }
-      });
-      const result = await sendWhatsAppInteractive(rootDir, to, statusButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'meat_selected' });
+    if (selection.startsWith('category_page:')) {
+      const [, rootId, pageRaw] = selection.split(':');
+      sessionData = readSessionData(session);
+      const options = getRootCategoryOptions(rootDir, rootId, sessionData.orderDraft);
+      const delivered = await sendWhatsAppInteractive(rootDir, to, categoryListForRoot(currentRootTitle(rootId), rootId, options, Number(pageRaw || 0)));
+      return json(res, 200, { ok: true, delivered, mode: 'category_page' });
     }
 
-    if (selection.startsWith('state:')) {
-      const statusFilter = selection.split(':')[1];
+    if (selection.startsWith('category:')) {
+      const [, rootId, categorySlug] = selection.split(':');
+      const categoryValue = extractCategoryValue(rootDir, rootId, categorySlug, sessionData.orderDraft);
+
       session = await persistSession(rootDir, from, session, {
-        currentState: 'awaiting_items',
-        sessionData: { orderDraft: { statusFilter }, itemPage: 0, lastPrompt: 'items' }
+        currentState: 'choosing_root_filters',
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            rootId: resolveRootId(rootId),
+            categoryFilter: categoryValue,
+            meatType: sessionData.orderDraft.rootId === 'bundles' ? null : sessionData.orderDraft.meatType
+          }
+        }
       });
 
       sessionData = readSessionData(session);
-      const result = await sendWhatsAppInteractive(
-        rootDir,
-        to,
-        itemList(
-          rootDir,
-          {
-            rootId: sessionData.orderDraft.rootId,
-            meatType: sessionData.orderDraft.meatType,
-            statusFilter
-          },
-          0
-        )
-      );
+      const typeOptions = getRootTypeOptions(rootDir, rootId, sessionData.orderDraft);
+      if ((rootId === 'bundles' || rootId === 'catering') && typeOptions.length > 1 && !sessionData.orderDraft.meatType) {
+        const delivered = await sendWhatsAppInteractive(rootDir, to, typeButtonsForRoot(currentRootTitle(rootId), typeOptions));
+        return json(res, 200, { ok: true, delivered, mode: 'category_selected_type_prompt' });
+      }
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'status_selected' });
+      const delivered = await promptRootFlow(rootDir, to, session, rootId, 0);
+      return json(res, 200, { ok: true, delivered, mode: 'category_selected' });
+    }
+
+    if (selection.startsWith('type:')) {
+      const [, typeSlug] = selection.split(':');
+      const rootId = resolveRootId(sessionData.orderDraft.rootId);
+      const typeValue = extractTypeValue(rootDir, rootId, typeSlug, sessionData.orderDraft);
+
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'choosing_root_filters',
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            meatType: typeValue
+          }
+        }
+      });
+
+      const delivered = await promptRootFlow(rootDir, to, session, rootId, 0);
+      return json(res, 200, { ok: true, delivered, mode: 'type_selected' });
+    }
+
+    if (selection.startsWith('status:')) {
+      const statusValue = selection.split(':')[1];
+      const rootId = resolveRootId(sessionData.orderDraft.rootId);
+
+      session = await persistSession(rootDir, from, session, {
+        currentState: 'choosing_root_filters',
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            statusFilter: statusValue
+          }
+        }
+      });
+
+      const delivered = await promptRootFlow(rootDir, to, session, rootId, 0);
+      return json(res, 200, { ok: true, delivered, mode: 'status_selected' });
     }
 
     if (selection.startsWith('items_page:')) {
       const page = Number(selection.split(':')[1] || 0);
       sessionData = readSessionData(session);
-
-      const result = await sendWhatsAppInteractive(
-        rootDir,
-        to,
-        itemList(
-          rootDir,
-          {
-            rootId: sessionData.orderDraft.rootId,
-            meatType: sessionData.orderDraft.meatType,
-            statusFilter: sessionData.orderDraft.statusFilter
-          },
-          page
-        )
-      );
-
-      return json(res, 200, { ok: true, delivered: result, mode: 'items_page' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, sessionData.orderDraft, page));
+      return json(res, 200, { ok: true, delivered, mode: 'items_page' });
     }
 
     if (selection.startsWith('item:')) {
@@ -1394,17 +1520,22 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const item = getMenuItemById(rootDir, itemId);
 
       if (!item) {
-        const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الصنف المطلوب. اختر من القائمة مرة أخرى.');
-        return json(res, 200, { ok: true, delivered: result, mode: 'item_missing' });
+        const delivered = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الصنف المطلوب. اختر من القائمة مرة أخرى.');
+        return json(res, 200, { ok: true, delivered, mode: 'item_missing' });
       }
 
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_quantity',
-        sessionData: { pendingItemId: item.record_id, awaiting: 'quantity_text', lastPrompt: 'quantity' }
+        sessionData: {
+          ...sessionData,
+          pendingItemId: item.record_id,
+          awaiting: 'quantity_text',
+          pendingExtras: getItemExtras(rootDir, item)
+        }
       });
 
-      const result = await sendWhatsAppInteractive(rootDir, to, quantityButtons(item));
-      return json(res, 200, { ok: true, delivered: result, mode: 'quantity' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, quantityButtons(item));
+      return json(res, 200, { ok: true, delivered, mode: 'quantity_prompt' });
     }
 
     if (selection.startsWith('qty:')) {
@@ -1412,130 +1543,163 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const quantity = Number(qtyRaw || 1);
       const item = getMenuItemById(rootDir, itemId);
 
-      if (!item) {
-        const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على الصنف المطلوب.');
-        return json(res, 200, { ok: true, delivered: result, mode: 'qty_item_missing' });
+      if (!item || !quantity || quantity < 1) {
+        const delivered = await sendWhatsAppText(rootDir, to, 'تعذر تحديد الكمية المطلوبة. أرسل رقمًا صحيحًا مثل 1 أو 2 أو 3.');
+        return json(res, 200, { ok: true, delivered, mode: 'quantity_error' });
       }
 
-      const newItem = {
-        id: item.record_id,
-        displayNameAr: item.display_name_ar || item.item_name_ar,
-        unit_ar: item.unit_ar,
-        price_1_jod: Number(item.price_1_jod || 0),
-        quantity,
-        lineTotalJod: Number(item.price_1_jod || 0) * quantity,
-        notes: null
-      };
-
-      const cart = [...(sessionData.cart || []), newItem];
       const extras = getItemExtras(rootDir, item);
+      const cart = [
+        ...(sessionData.cart || []),
+        {
+          id: item.record_id,
+          displayNameAr: item.display_name_ar || item.item_name_ar,
+          unit_ar: item.unit_ar,
+          price_1_jod: Number(item.price_1_jod || 0),
+          quantity,
+          extras: [],
+          notes: null,
+          lineTotalJod: Number(item.price_1_jod || 0) * quantity
+        }
+      ];
 
       session = await persistSession(rootDir, from, session, {
         currentState: extras.length ? 'awaiting_extra_choice' : 'reviewing_cart',
-        sessionData: { cart, awaiting: extras.length ? 'extra_choice' : null }
+        sessionData: {
+          ...sessionData,
+          cart,
+          pendingItemId: item.record_id,
+          pendingExtras: extras,
+          awaiting: extras.length ? 'extra_choice' : null
+        }
       });
 
-      const result = await sendWhatsAppInteractive(
-        rootDir,
-        to,
-        extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text)
-      );
+      const delivered = extras.length
+        ? await sendWhatsAppInteractive(rootDir, to, extrasList(item, extras))
+        : await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text));
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'cart_after_qty' });
+      return json(res, 200, { ok: true, delivered, mode: 'after_quantity' });
     }
 
     if (selection.startsWith('extra:')) {
-      const [, itemId, extraSlug] = selection.split(':');
+      const [, itemId, extraId] = selection.split(':');
       const item = getMenuItemById(rootDir, itemId);
       const extras = getItemExtras(rootDir, item);
-      const selectedExtra = extras.find(extra => slugify(extra.label) === extraSlug);
+      const selectedExtra = extras.find(extra => extra.id === extraId);
       const cart = [...(sessionData.cart || [])];
       const last = cart[cart.length - 1];
 
-      if (last && selectedExtra) {
-        last.notes = last.notes ? `${last.notes} + ${selectedExtra.label}` : selectedExtra.label;
-        last.lineTotalJod = Number(last.lineTotalJod || 0) + Number(selectedExtra.price || 0);
+      if (selectedExtra && last) {
+        const existingIds = new Set((last.extras || []).map(extra => extra.id));
+        if (!existingIds.has(selectedExtra.id)) {
+          last.extras = [...(last.extras || []), selectedExtra];
+          last.notes = last.extras.map(extra => extra.label).join(' + ');
+          last.lineTotalJod = Number(last.lineTotalJod || 0) + Number(selectedExtra.price || 0);
+        }
       }
 
       session = await persistSession(rootDir, from, session, {
         currentState: 'reviewing_cart',
-        sessionData: { cart, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          cart,
+          pendingExtras: [],
+          awaiting: null
+        }
       });
 
-      const result = await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text));
-      return json(res, 200, { ok: true, delivered: result, mode: 'extra_added' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text));
+      return json(res, 200, { ok: true, delivered, mode: 'extra_added' });
     }
 
     if (selection === BUTTON_IDS.CLEAR_CART) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'main_menu',
-        sessionData: {
-          cart: [],
-          selectedSection: null,
-          itemPage: 0,
-          pendingItemId: null,
-          awaiting: null,
-          dayOptions: [],
-          lastPrompt: null,
-          orderDraft: defaultDraft()
-        }
+        sessionData: resetDraftKeepingSession()
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons(session?.preferred_language || 'ar'));
-      return json(res, 200, { ok: true, delivered: result, mode: 'cart_cleared' });
+      const delivered = await sendMainMenu(rootDir, to, session);
+      return json(res, 200, { ok: true, delivered, mode: 'cart_cleared' });
     }
 
     if (selection === BUTTON_IDS.ADD_MORE) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'menu_roots',
-        sessionData: { lastPrompt: 'root', pendingItemId: null, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          pendingItemId: null,
+          pendingExtras: [],
+          awaiting: null
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
-      return json(res, 200, { ok: true, delivered: result, mode: 'add_more' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0));
+      return json(res, 200, { ok: true, delivered, mode: 'add_more' });
     }
 
     if (selection === BUTTON_IDS.CHECKOUT) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_day',
-        sessionData: { lastPrompt: 'day' }
+        sessionData: {
+          ...sessionData,
+          awaiting: null
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, dayList());
-      return json(res, 200, { ok: true, delivered: result, mode: 'checkout_day' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, dayList());
+      return json(res, 200, { ok: true, delivered, mode: 'day_prompt' });
     }
 
     if (selection.startsWith('day:')) {
       const [, dayIso, label] = selection.split(':');
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_slot',
-        sessionData: { orderDraft: { deliveryDayIso: dayIso, deliveryDayLabel: label }, lastPrompt: 'slot' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            deliveryDayIso: dayIso,
+            deliveryDayLabel: label
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, slotList(config));
-      return json(res, 200, { ok: true, delivered: result, mode: 'slot_prompt' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, slotList(config));
+      return json(res, 200, { ok: true, delivered, mode: 'slot_prompt' });
     }
 
     if (selection.startsWith('slot:')) {
       const slot = selection.split(':').slice(1).join(':');
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_delivery_type',
-        sessionData: { orderDraft: { deliverySlot: slot }, lastPrompt: 'delivery_type' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            deliverySlot: slot
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, deliveryTypeButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'delivery_type_prompt' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, deliveryTypeButtons());
+      return json(res, 200, { ok: true, delivered, mode: 'delivery_type_prompt' });
     }
 
     if (selection === BUTTON_IDS.DELIVERY || selection === BUTTON_IDS.PICKUP) {
       const deliveryType = selection === BUTTON_IDS.PICKUP ? 'pickup' : 'delivery';
       session = await persistSession(rootDir, from, session, {
         currentState: deliveryType === 'pickup' ? 'awaiting_payment' : 'awaiting_sector',
-        sessionData: { orderDraft: { deliveryType }, lastPrompt: deliveryType === 'pickup' ? 'payment' : 'sector' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            deliveryType,
+            deliveryFeeJod: deliveryType === 'pickup' ? 0 : sessionData.orderDraft.deliveryFeeJod,
+            zoneId: deliveryType === 'pickup' ? null : sessionData.orderDraft.zoneId,
+            zoneName: deliveryType === 'pickup' ? null : sessionData.orderDraft.zoneName,
+            address: deliveryType === 'pickup' ? 'استلام من الفرع' : sessionData.orderDraft.address
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, deliveryType === 'pickup' ? paymentButtons() : sectorList(rootDir));
-      return json(res, 200, { ok: true, delivered: result, mode: 'delivery_type_selected' });
+      const delivered = deliveryType === 'pickup'
+        ? await sendWhatsAppInteractive(rootDir, to, paymentButtons())
+        : await sendWhatsAppInteractive(rootDir, to, sectorList(rootDir));
+      return json(res, 200, { ok: true, delivered, mode: 'delivery_type_selected' });
     }
 
     if (selection.startsWith('sector:')) {
@@ -1544,17 +1708,24 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const group = getDeliveryGroupByKey(rootDir, sectorKey);
 
       if (!group) {
-        const result = await sendWhatsAppText(rootDir, to, 'تعذر العثور على هذا القطاع. اختر من جديد.');
-        return json(res, 200, { ok: true, delivered: result, mode: 'sector_error' });
+        const delivered = await sendWhatsAppText(rootDir, to, 'تعذر العثور على القطاع المطلوب. اختر من جديد.');
+        return json(res, 200, { ok: true, delivered, mode: 'sector_missing' });
       }
 
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_zone',
-        sessionData: { orderDraft: { sectorKey, sectorTitle: group.group }, lastPrompt: 'zone' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            sectorKey,
+            sectorTitle: group.group
+          }
+        }
       });
 
-      const result = await sendWhatsAppInteractive(rootDir, to, zoneList(rootDir, sectorKey, page));
-      return json(res, 200, { ok: true, delivered: result, mode: 'zone_prompt' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, zoneList(rootDir, sectorKey, page));
+      return json(res, 200, { ok: true, delivered, mode: 'zone_prompt' });
     }
 
     if (selection.startsWith('zone:')) {
@@ -1562,128 +1733,151 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const zone = getDeliveryZoneById(rootDir, zoneId);
 
       if (!zone) {
-        const result = await sendWhatsAppText(rootDir, to, 'تعذر تحديد المنطقة المطلوبة. أعد الاختيار.');
-        return json(res, 200, { ok: true, delivered: result, mode: 'zone_error' });
+        const delivered = await sendWhatsAppText(rootDir, to, 'تعذر تحديد المنطقة المطلوبة. أعد الاختيار.');
+        return json(res, 200, { ok: true, delivered, mode: 'zone_missing' });
       }
 
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_address',
         sessionData: {
+          ...sessionData,
+          awaiting: 'address',
           orderDraft: {
+            ...sessionData.orderDraft,
             zoneId: zone.zone_id,
             zoneName: zone.zone_name_ar,
             sectorTitle: `${zone.zone_type} — ${zone.sector_or_governorate}`,
             deliveryFeeJod: Number(zone.delivery_fee_jod || 0)
-          },
-          awaiting: 'address',
-          lastPrompt: 'address'
+          }
         }
       });
 
-      const result = await sendWhatsAppText(
+      const delivered = await sendWhatsAppText(
         rootDir,
         to,
         `تم اختيار منطقة ${zone.zone_name_ar} ورسوم التوصيل ${money(zone.delivery_fee_jod)} 🌿\nأرسل العنوان بالتفصيل أو شارك الموقع الآن.`
       );
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'address_prompt' });
+      return json(res, 200, { ok: true, delivered, mode: 'address_prompt' });
     }
 
     if (selection === BUTTON_IDS.PAY_CASH) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_notes_choice',
-        sessionData: { orderDraft: { paymentMethod: 'cash' }, lastPrompt: 'notes' }
+        sessionData: {
+          ...sessionData,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            paymentMethod: 'cash'
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, notesButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'notes_prompt' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, notesButtons());
+      return json(res, 200, { ok: true, delivered, mode: 'notes_prompt' });
     }
 
     if (selection === BUTTON_IDS.NOTES_ADD) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_notes_text',
-        sessionData: { awaiting: 'notes_text' }
+        sessionData: {
+          ...sessionData,
+          awaiting: 'notes_text'
+        }
       });
-
-      const result = await sendWhatsAppText(rootDir, to, 'اكتب الملاحظة التي تريد إضافتها على الطلب الآن.');
-      return json(res, 200, { ok: true, delivered: result, mode: 'notes_text_prompt' });
+      const delivered = await sendWhatsAppText(rootDir, to, 'اكتب الملاحظة التي تريد إضافتها على الطلب الآن.');
+      return json(res, 200, { ok: true, delivered, mode: 'notes_text_prompt' });
     }
 
     if (selection === BUTTON_IDS.NOTES_SKIP) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'review_customer_summary',
-        sessionData: { orderDraft: { notes: null }, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          awaiting: null,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            notes: null
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(
+      const delivered = await sendWhatsAppInteractive(
         rootDir,
         to,
         customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: null }))
       );
-
-      return json(res, 200, { ok: true, delivered: result, mode: 'customer_summary' });
+      return json(res, 200, { ok: true, delivered, mode: 'customer_summary' });
     }
 
     if (selection === BUTTON_IDS.CUSTOMER_EDIT) {
       session = await persistSession(rootDir, from, session, { currentState: 'editing_summary' });
-      const result = await sendWhatsAppInteractive(rootDir, to, editList());
-      return json(res, 200, { ok: true, delivered: result, mode: 'edit_list' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, editList());
+      return json(res, 200, { ok: true, delivered, mode: 'edit_list' });
     }
 
     if (selection === BUTTON_IDS.EDIT_ITEMS) {
       session = await persistSession(rootDir, from, session, {
         currentState: 'menu_roots',
-        sessionData: { lastPrompt: 'root' }
+        sessionData: {
+          ...sessionData,
+          pendingItemId: null,
+          pendingExtras: [],
+          awaiting: null
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir));
-      return json(res, 200, { ok: true, delivered: result, mode: 'edit_items' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0));
+      return json(res, 200, { ok: true, delivered, mode: 'edit_items' });
     }
 
     if (selection === BUTTON_IDS.EDIT_SCHEDULE) {
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_day' });
-      const result = await sendWhatsAppInteractive(rootDir, to, dayList());
-      return json(res, 200, { ok: true, delivered: result, mode: 'edit_schedule' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, dayList());
+      return json(res, 200, { ok: true, delivered, mode: 'edit_schedule' });
     }
 
     if (selection === BUTTON_IDS.EDIT_ZONE) {
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_sector' });
-      const result = await sendWhatsAppInteractive(rootDir, to, sectorList(rootDir));
-      return json(res, 200, { ok: true, delivered: result, mode: 'edit_zone' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, sectorList(rootDir));
+      return json(res, 200, { ok: true, delivered, mode: 'edit_zone' });
     }
 
     if (selection === BUTTON_IDS.EDIT_NOTES) {
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_notes_choice' });
-      const result = await sendWhatsAppInteractive(rootDir, to, notesButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'edit_notes' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, notesButtons());
+      return json(res, 200, { ok: true, delivered, mode: 'edit_notes' });
     }
 
     if (selection === BUTTON_IDS.CUSTOMER_CONFIRM) {
       const outcome = await createOrUpdateOrderFromDraft(rootDir, from, session);
       if (outcome.error) {
-        const result = await sendWhatsAppText(rootDir, to, outcome.error);
-        return json(res, 200, { ok: true, delivered: result, mode: 'create_order_error' });
+        const delivered = await sendWhatsAppText(rootDir, to, outcome.error);
+        return json(res, 200, { ok: true, delivered, mode: 'create_order_error' });
       }
 
       await notifyAdminsNewOrder(rootDir, outcome.order, config);
-      const result = await sendWhatsAppText(
+      const delivered = await sendWhatsAppText(
         rootDir,
         to,
-        `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم المتابعة الداخلي: ${outcome.order.id}\nسنثبت الطلب بعد اعتماد الإدارة ونرسل لك الحالة مباشرة هنا.`
+        `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم الطلب: ${outcome.order.id}\nسنرسل لك الحالة مباشرة هنا بعد اعتماد الإدارة.`
       );
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'sent_to_admin' });
+      return json(res, 200, { ok: true, delivered, mode: 'sent_to_admin' });
     }
 
     if (type === 'location' && sessionData.awaiting === 'address') {
       const locationText = buildLocationText(message);
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_payment',
-        sessionData: { orderDraft: { address: locationText }, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          awaiting: null,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            address: locationText
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'address_location_saved' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
+      return json(res, 200, { ok: true, delivered, mode: 'address_location_saved' });
     }
 
     if (type === 'text' && sessionData.awaiting === 'quantity_text') {
@@ -1691,89 +1885,93 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const item = getMenuItemById(rootDir, sessionData.pendingItemId);
 
       if (!quantity || quantity < 1 || !item) {
-        const result = await sendWhatsAppText(rootDir, to, 'أرسل رقم كمية صحيحًا مثل 2 أو 5.');
-        return json(res, 200, { ok: true, delivered: result, mode: 'quantity_invalid' });
+        const delivered = await sendWhatsAppText(rootDir, to, 'أرسل رقم كمية صحيحًا مثل 1 أو 2 أو 3.');
+        return json(res, 200, { ok: true, delivered, mode: 'quantity_invalid' });
       }
 
-      const newItem = {
-        id: item.record_id,
-        displayNameAr: item.display_name_ar || item.item_name_ar,
-        unit_ar: item.unit_ar,
-        price_1_jod: Number(item.price_1_jod || 0),
-        quantity,
-        lineTotalJod: Number(item.price_1_jod || 0) * quantity,
-        notes: null
-      };
-
-      const cart = [...(sessionData.cart || []), newItem];
       const extras = getItemExtras(rootDir, item);
+      const cart = [
+        ...(sessionData.cart || []),
+        {
+          id: item.record_id,
+          displayNameAr: item.display_name_ar || item.item_name_ar,
+          unit_ar: item.unit_ar,
+          price_1_jod: Number(item.price_1_jod || 0),
+          quantity,
+          extras: [],
+          notes: null,
+          lineTotalJod: Number(item.price_1_jod || 0) * quantity
+        }
+      ];
 
       session = await persistSession(rootDir, from, session, {
         currentState: extras.length ? 'awaiting_extra_choice' : 'reviewing_cart',
-        sessionData: { cart, awaiting: extras.length ? 'extra_choice' : null }
+        sessionData: {
+          ...sessionData,
+          cart,
+          awaiting: extras.length ? 'extra_choice' : null,
+          pendingExtras: extras
+        }
       });
 
-      const result = await sendWhatsAppInteractive(
-        rootDir,
-        to,
-        extras.length ? extrasButtons(item, extras) : cartButtons(cartSummary(cart, sessionData.orderDraft).text)
-      );
+      const delivered = extras.length
+        ? await sendWhatsAppInteractive(rootDir, to, extrasList(item, extras))
+        : await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text));
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'quantity_text_saved' });
+      return json(res, 200, { ok: true, delivered, mode: 'quantity_text_saved' });
     }
 
     if (type === 'text' && sessionData.awaiting === 'address') {
       session = await persistSession(rootDir, from, session, {
         currentState: 'awaiting_payment',
-        sessionData: { orderDraft: { address: text }, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          awaiting: null,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            address: text
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'address_saved' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, paymentButtons());
+      return json(res, 200, { ok: true, delivered, mode: 'address_saved' });
     }
 
     if (type === 'text' && sessionData.awaiting === 'notes_text') {
       session = await persistSession(rootDir, from, session, {
         currentState: 'review_customer_summary',
-        sessionData: { orderDraft: { notes: text }, awaiting: null }
+        sessionData: {
+          ...sessionData,
+          awaiting: null,
+          orderDraft: {
+            ...sessionData.orderDraft,
+            notes: text
+          }
+        }
       });
-
-      const result = await sendWhatsAppInteractive(
+      const delivered = await sendWhatsAppInteractive(
         rootDir,
         to,
         customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, { ...sessionData.orderDraft, notes: text }))
       );
+      return json(res, 200, { ok: true, delivered, mode: 'notes_saved' });
+    }
 
-      return json(res, 200, { ok: true, delivered: result, mode: 'notes_saved' });
+    if (type !== 'text' && type !== 'interactive' && type !== 'location') {
+      const delivered = await sendWhatsAppText(rootDir, to, 'وصلتنا رسالتك 🌿 حاليًا ندعم الأزرار والنص والموقع. اكتب "اطلب الآن" أو "المنيو" للمتابعة.');
+      return json(res, 200, { ok: true, delivered, mode: 'unsupported_media' });
     }
 
     const fallbackIntent = textIntent(text);
     if (fallbackIntent === 'welcome') {
-      const result = await sendWhatsAppInteractive(rootDir, to, customerProfile.isReturning ? welcomeButtons(true) : mainMenuButtons());
-      return json(res, 200, { ok: true, delivered: result, mode: 'welcome_repeat' });
+      const delivered = await sendWhatsAppInteractive(rootDir, to, customerProfile.isReturning ? welcomeButtons(true) : welcomeButtons(false));
+      return json(res, 200, { ok: true, delivered, mode: 'welcome_repeat' });
     }
 
-    const result = await sendWhatsAppInteractive(rootDir, to, mainMenuButtons());
-    return json(res, 200, { ok: true, delivered: result, mode: 'fallback_main' });
+    const delivered = await sendMainMenu(rootDir, to, session);
+    return json(res, 200, { ok: true, delivered, mode: 'fallback_main' });
   } catch (error) {
     console.error('WEBHOOK_FATAL_ERROR', error);
-
-    try {
-      const body = await parseBody(req).catch(() => ({}));
-      const value = body.entry?.[0]?.changes?.[0]?.value || body.value || {};
-      const message = value.messages?.[0];
-      const to = normalizePhone(message?.from || '').replace(/^\+/, '');
-
-      if (to) {
-        await sendWhatsAppPayload(to, {
-          type: 'text',
-          text: { body: 'وصلتنا رسالتك 🌿 حدث تأخير بسيط في المعالجة وسنعود لك حالًا.' }
-        });
-      }
-    } catch (fallbackError) {
-      console.error('WEBHOOK_FALLBACK_SEND_ERROR', fallbackError);
-    }
-
     return json(res, 200, {
       ok: false,
       recovered: true,
