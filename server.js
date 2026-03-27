@@ -16,7 +16,7 @@ import {
 import { getMenuData, getMenuSummary, getMetaCatalog, searchMenu, getSections } from './src/services/menu.service.js';
 import { buildHomepageData, buildSeoConfig } from './src/services/site.service.js';
 import { getDeliveryZoneById } from './src/services/delivery.service.js';
-import { sendMetaEvent } from './src/services/meta-capi.service.js';
+import { sendMetaEvent, buildMetaRequestContext } from './src/services/meta-capi.service.js';
 import { whatsappVerify, processWhatsAppWebhook } from './src/services/whatsapp.service.js';
 import {
   createOrder,
@@ -32,6 +32,56 @@ const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, 'public');
 const appConfig = loadAppConfig(path.join(rootDir, 'config.app.json'));
+
+function getOrderTotal(order = {}) {
+  return Number(order.total_jod || order.totalJod || 0);
+}
+
+function getOrderDeliveryType(order = {}) {
+  return order.delivery_type || order.deliveryType || undefined;
+}
+
+function getOrderPaymentMethod(order = {}) {
+  return order.payment_method || order.paymentMethod || undefined;
+}
+
+async function safeSendMetaEvent(config, payload) {
+  const result = await sendMetaEvent(config, payload);
+
+  if (result?.skipped) {
+    console.info('META_EVENT_SKIPPED', JSON.stringify({
+      eventName: payload?.event_name,
+      reason: result.reason,
+      eventId: payload?.event_id,
+      orderId: payload?.custom_data?.order_id,
+      externalId: payload?.user_data?.external_id
+    }));
+    return result;
+  }
+
+  if (result?.ok === false) {
+    console.error('META_EVENT_FAILED', JSON.stringify({
+      eventName: payload?.event_name,
+      status: result.status,
+      error: result.error,
+      response: result.data || null,
+      eventId: payload?.event_id,
+      orderId: payload?.custom_data?.order_id,
+      externalId: payload?.user_data?.external_id
+    }));
+    return result;
+  }
+
+  console.info('META_EVENT_SENT', JSON.stringify({
+    eventName: payload?.event_name,
+    status: result?.status,
+    eventId: payload?.event_id,
+    orderId: payload?.custom_data?.order_id,
+    externalId: payload?.user_data?.external_id
+  }));
+
+  return result;
+}
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -95,6 +145,8 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/leads' && method === 'POST') {
       const body = await parseBody(req);
+      const metaContext = buildMetaRequestContext(req, body.meta, `${appConfig.site.baseUrl}/contact.html`);
+
       const lead = await createLead(rootDir, {
         id: randomUUID(),
         source: body.source || 'website',
@@ -105,16 +157,21 @@ const server = http.createServer(async (req, res) => {
         createdAt: new Date().toISOString()
       });
 
-      await sendMetaEvent(appConfig, {
+      await safeSendMetaEvent(appConfig, {
         event_name: 'Lead',
         action_source: 'website',
-        event_source_url: `${appConfig.site.baseUrl}/contact.html`,
+        event_source_url: metaContext.event_source_url || `${appConfig.site.baseUrl}/contact.html`,
+        event_id: metaContext.event_id || `lead-${lead.id}`,
         user_data: {
-          phone: lead.phone
+          phone: lead.phone,
+          email: body.email || '',
+          external_id: lead.id,
+          ...metaContext.user_data
         },
         custom_data: {
           content_name: 'website_lead',
-          source: lead.source
+          source: lead.source,
+          preferred_channel: lead.preferred_channel || lead.preferredChannel || body.preferredChannel || 'whatsapp'
         }
       });
 
@@ -123,6 +180,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/orders' && method === 'POST') {
       const body = await parseBody(req);
+      const metaContext = buildMetaRequestContext(req, body.meta, `${appConfig.site.baseUrl}/order.html`);
       const phone = normalizePhone(body.phone || '');
       const items = Array.isArray(body.items) ? body.items : [];
       const notes = body.notes || '';
@@ -158,16 +216,24 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now
       });
 
-      await sendMetaEvent(appConfig, {
+      await safeSendMetaEvent(appConfig, {
         event_name: 'InitiateCheckout',
         action_source: 'website',
-        event_source_url: `${appConfig.site.baseUrl}/order.html`,
+        event_source_url: metaContext.event_source_url || `${appConfig.site.baseUrl}/order.html`,
+        event_id: metaContext.event_id || `checkout-${order.id}`,
         user_data: {
-          phone
+          phone,
+          external_id: order.id,
+          ...metaContext.user_data
         },
         custom_data: {
           currency: 'JOD',
+          value: Number((subtotal + deliveryFee).toFixed(3)),
           content_name: 'order_submitted',
+          content_category: 'kitchen_order',
+          order_id: order.id,
+          delivery_type: deliveryType,
+          payment_method: paymentMethod,
           num_items: items.length
         }
       });
@@ -206,15 +272,24 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (['approved', 'delivered'].includes(body.status)) {
-        await sendMetaEvent(appConfig, {
-          event_name: body.status === 'approved' ? 'QualifiedLead' : 'Purchase',
+        const eventName = body.status === 'approved' ? 'QualifiedLead' : 'Purchase';
+
+        await safeSendMetaEvent(appConfig, {
+          event_name: eventName,
           action_source: 'system_generated',
+          event_source_url: `${appConfig.site.baseUrl}/track.html`,
+          event_id: `${eventName.toLowerCase()}-${updated.id}-${Date.now()}`,
+          user_data: {
+            phone: updated.phone,
+            external_id: updated.id
+          },
           custom_data: {
             order_id: updated.id,
-            status: body.status
-          },
-          user_data: {
-            phone: updated.phone
+            status: body.status,
+            value: getOrderTotal(updated),
+            currency: 'JOD',
+            delivery_type: getOrderDeliveryType(updated),
+            payment_method: getOrderPaymentMethod(updated)
           }
         });
       }
@@ -232,7 +307,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/meta/event' && method === 'POST') {
       const body = await parseBody(req);
-      const result = await sendMetaEvent(appConfig, body);
+      const result = await safeSendMetaEvent(appConfig, body);
       return json(res, 200, { ok: true, result });
     }
 
