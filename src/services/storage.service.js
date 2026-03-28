@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { readJsonFile, writeJsonFile } from '../utils/core.js';
 import { deleteRows, insertRows, isSupabaseEnabled, patchRows, selectRows, upsertRow } from './supabase.service.js';
+import { trackOrderStatusChanged } from './meta-capi.service.js';
 
 const files = {
   orders: 'orders.json',
@@ -559,8 +560,13 @@ export async function getLatestOpenOrderByPhone(rootDir, phone) {
 }
 
 export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr, extra = {}) {
+  const before = await getOrderById(rootDir, orderId);
+  if (!before) return null;
+
+  let updated = null;
+
   if (isSupabaseEnabled()) {
-    return patchRows('orders', { id: orderId }, {
+    updated = await patchRows('orders', { id: orderId }, {
       status,
       status_label_ar: statusLabelAr,
       approved_by_phone: extra.approvedByPhone || undefined,
@@ -568,19 +574,66 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr,
       admin_notes: extra.adminNotes || undefined,
       updated_at: new Date().toISOString()
     });
+  } else {
+    const orders = loadCollection(rootDir, 'orders');
+    const index = orders.findIndex(order => order.id === orderId);
+    if (index === -1) return null;
+    orders[index].status = status;
+    orders[index].statusLabelAr = statusLabelAr;
+    orders[index].updatedAt = new Date().toISOString();
+    if (extra.adminNotes) orders[index].adminNotes = extra.adminNotes;
+    if (extra.approvedByPhone) orders[index].approvedByPhone = extra.approvedByPhone;
+    if (extra.approvedAt) orders[index].approvedAt = extra.approvedAt;
+    saveCollection(rootDir, 'orders', orders);
+    updated = orders[index];
   }
 
-  const orders = loadCollection(rootDir, 'orders');
-  const index = orders.findIndex(order => order.id === orderId);
-  if (index === -1) return null;
-  orders[index].status = status;
-  orders[index].statusLabelAr = statusLabelAr;
-  orders[index].updatedAt = new Date().toISOString();
-  if (extra.adminNotes) orders[index].adminNotes = extra.adminNotes;
-  if (extra.approvedByPhone) orders[index].approvedByPhone = extra.approvedByPhone;
-  if (extra.approvedAt) orders[index].approvedAt = extra.approvedAt;
-  saveCollection(rootDir, 'orders', orders);
-  return orders[index];
+  const previousStatus = String(before?.status || '').trim();
+  const currentStatus = String(updated?.status || status || '').trim();
+
+  if (updated && currentStatus && currentStatus !== previousStatus) {
+    const metaResult = await trackOrderStatusChanged(
+      { site: { baseUrl: process.env.BASE_URL || 'https://matbakh-alyoum.site' } },
+      {
+        order: updated,
+        status: currentStatus,
+        actionSource: 'system_generated',
+        eventSourceUrl: `${process.env.BASE_URL || 'https://matbakh-alyoum.site'}/track.html`,
+        userData: {
+          phone: updated.phone || before.phone,
+          external_id: updated.id || before.id
+        },
+        customData: {
+          approved_by_phone: extra.approvedByPhone || updated.approved_by_phone || updated.approvedByPhone || undefined
+        }
+      }
+    );
+
+    if (metaResult?.ok === false) {
+      console.error('META_ORDER_STATUS_EVENT_FAILED', JSON.stringify({
+        orderId,
+        previousStatus,
+        currentStatus,
+        reason: metaResult.error || metaResult.data || null
+      }));
+    } else if (metaResult?.skipped) {
+      console.info('META_ORDER_STATUS_EVENT_SKIPPED', JSON.stringify({
+        orderId,
+        previousStatus,
+        currentStatus,
+        reason: metaResult.reason
+      }));
+    } else {
+      console.info('META_ORDER_STATUS_EVENT_SENT', JSON.stringify({
+        orderId,
+        previousStatus,
+        currentStatus,
+        statusCode: metaResult.status
+      }));
+    }
+  }
+
+  return updated;
 }
 
 export async function generateNextOrderCode(rootDir) {
