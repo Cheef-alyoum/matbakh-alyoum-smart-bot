@@ -9,14 +9,27 @@ on:
 jobs:
   validate-and-smoke-test:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      NODE_ENV: test
+      CI: true
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Validate project
         run: node scripts/validate-app.js
