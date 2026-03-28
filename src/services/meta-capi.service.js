@@ -151,6 +151,15 @@ function getLeadEmail(lead = {}) {
   return cleanEmail(lead.email);
 }
 
+function buildAppSecretProof(accessToken, appSecret) {
+  if (!accessToken || !appSecret) return undefined;
+
+  return crypto
+    .createHmac('sha256', appSecret)
+    .update(accessToken)
+    .digest('hex');
+}
+
 export function isMetaCrmEnabled() {
   const raw = String(process.env.META_CRM_ENABLED ?? 'true').trim().toLowerCase();
   return !META_DISABLED_VALUES.has(raw);
@@ -163,6 +172,7 @@ export function getMetaBaseUrl(config = {}) {
 export function getMetaCrmDiagnostics() {
   const pixelId = cleanValue(process.env.META_PIXEL_ID);
   const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
+  const appSecret = cleanValue(process.env.APP_SECRET);
   const testEventCode = cleanValue(process.env.META_TEST_EVENT_CODE);
 
   return {
@@ -170,6 +180,8 @@ export function getMetaCrmDiagnostics() {
     configured: Boolean(pixelId && accessToken),
     pixelIdConfigured: Boolean(pixelId),
     accessTokenConfigured: Boolean(accessToken),
+    appSecretConfigured: Boolean(appSecret),
+    appSecretProofConfigured: Boolean(accessToken && appSecret),
     testEventCodeConfigured: Boolean(testEventCode),
     graphApiVersion: getGraphApiVersion()
   };
@@ -329,6 +341,7 @@ export async function sendMetaEvent(config, event = {}) {
 
   const pixelId = cleanValue(process.env.META_PIXEL_ID);
   const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
+  const appSecret = cleanValue(process.env.APP_SECRET);
 
   if (!pixelId || !accessToken) {
     return { skipped: true, reason: 'META_PIXEL_ID أو META_ACCESS_TOKEN غير مضبوطين.' };
@@ -349,15 +362,23 @@ export async function sendMetaEvent(config, event = {}) {
     test_event_code: cleanValue(process.env.META_TEST_EVENT_CODE)
   });
 
+  const requestUrl = new URL(
+    `https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events`
+  );
+
+  requestUrl.searchParams.set('access_token', accessToken);
+
+  const appSecretProof = buildAppSecretProof(accessToken, appSecret);
+  if (appSecretProof) {
+    requestUrl.searchParams.set('appsecret_proof', appSecretProof);
+  }
+
   try {
-    const response = await fetch(
-      `https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events?access_token=${accessToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetch(requestUrl.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
     const data = await response.json().catch(() => ({}));
 
