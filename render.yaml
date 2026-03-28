@@ -49,6 +49,10 @@ services:
         sync: false
       - key: META_TEST_EVENT_CODE
         sync: false
+      - key: META_CRM_ENABLED
+        value: "true"
+      - key: META_GRAPH_API_VERSION
+        value: v25.0
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
