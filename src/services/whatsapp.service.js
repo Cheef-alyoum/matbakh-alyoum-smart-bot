@@ -1366,24 +1366,65 @@ async function notifyAdminsNewOrder(rootDir, order, config) {
   const items = await getOrderItems(rootDir, order.id);
   const admins = getAdminNumbers(config);
 
+  if (!admins.length) {
+    console.warn('ADMIN_NUMBERS_EMPTY_OR_INVALID', {
+      orderId: order.id
+    });
+    return { sent: 0, failed: 0, admins: [] };
+  }
+
   const lines = items.map((item, index) => `${index + 1}. ${item.display_name_ar} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`);
   const summary = [
     'طلب جديد يحتاج اعتماد 🌿',
     `رقم الطلب: ${order.id}`,
     `الهاتف: ${order.phone}`,
+    order.customer_name ? `الاسم: ${order.customer_name}` : null,
     '',
     ...lines,
     '',
     `الإجمالي: ${money(order.total_jod || order.totalJod)}`,
     order.delivery_slot ? `الموعد: ${order.delivery_slot}` : null,
+    order.delivery_zone_name ? `المنطقة: ${order.delivery_zone_name}` : null,
     order.address_text ? `العنوان: ${order.address_text}` : null,
     order.order_notes ? `الملاحظات: ${order.order_notes}` : null
   ].filter(Boolean).join('\n');
 
+  let sent = 0;
+  let failed = 0;
+
   for (const adminPhone of admins) {
-    await sendWhatsAppText(rootDir, adminPhone, summary);
-    await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id));
+    try {
+      const textResult = await sendWhatsAppText(rootDir, adminPhone, summary);
+      const interactiveResult = await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id));
+
+      const okText = Boolean(textResult?.status >= 200 && textResult?.status < 300);
+      const okInteractive = Boolean(interactiveResult?.status >= 200 && interactiveResult?.status < 300);
+
+      if (okText || okInteractive) {
+        sent += 1;
+      } else {
+        failed += 1;
+      }
+
+      console.info('ADMIN_ORDER_NOTIFICATION_RESULT', JSON.stringify({
+        orderId: order.id,
+        adminPhone,
+        okText,
+        okInteractive,
+        textStatus: textResult?.status || null,
+        interactiveStatus: interactiveResult?.status || null
+      }));
+    } catch (error) {
+      failed += 1;
+      console.error('ADMIN_ORDER_NOTIFICATION_ERROR', {
+        orderId: order.id,
+        adminPhone,
+        message: error?.message || null
+      });
+    }
   }
+
+  return { sent, failed, admins };
 }
 
 async function createOrUpdateOrderFromDraft(rootDir, phone, session) {
@@ -2290,14 +2331,29 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         return json(res, 200, { ok: true, delivered, mode: 'create_order_error' });
       }
 
-      await notifyAdminsNewOrder(rootDir, outcome.order, config);
-      const delivered = await sendWhatsAppText(
-        rootDir,
-        to,
-        `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم الطلب: ${outcome.order.id}\nسنرسل لك الحالة مباشرة هنا بعد اعتماد الإدارة.`
-      );
+      let adminNotification = { sent: 0, failed: 0, admins: [] };
 
-      return json(res, 200, { ok: true, delivered, mode: 'sent_to_admin' });
+      try {
+        adminNotification = await notifyAdminsNewOrder(rootDir, outcome.order, config);
+      } catch (error) {
+        console.error('ADMIN_NOTIFY_FATAL', {
+          orderId: outcome.order.id,
+          message: error?.message || null
+        });
+      }
+
+      const customerMessage = adminNotification.sent > 0
+        ? `تم استلام طلبك وإرساله للإدارة للمراجعة ✅\nرقم الطلب: ${outcome.order.id}\nسنرسل لك الحالة مباشرة هنا بعد اعتماد الإدارة.`
+        : `تم استلام طلبك بنجاح ✅\nرقم الطلب: ${outcome.order.id}\nطلبك الآن قيد المعالجة، وسيتم تحديث الحالة هنا مباشرة.`;
+
+      const delivered = await sendWhatsAppText(rootDir, to, customerMessage);
+
+      return json(res, 200, {
+        ok: true,
+        delivered,
+        mode: 'sent_to_admin',
+        adminNotification
+      });
     }
 
     if (type === 'location' && sessionData.awaiting === 'address') {
