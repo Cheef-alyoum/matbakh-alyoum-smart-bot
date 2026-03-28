@@ -2,6 +2,21 @@ import crypto from 'node:crypto';
 import { sha256 } from '../utils/core.js';
 
 const META_DISABLED_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled']);
+const DEFAULT_GRAPH_API_VERSION = 'v25.0';
+const DEFAULT_BASE_URL = 'https://matbakh-alyoum.site';
+
+const ORDER_STATUS_EVENT_MAP = {
+  approved: {
+    eventName: 'QualifiedLead',
+    contentName: 'order_approved',
+    crmStage: 'qualified'
+  },
+  delivered: {
+    eventName: 'Purchase',
+    contentName: 'order_delivered',
+    crmStage: 'delivered'
+  }
+};
 
 function cleanValue(value) {
   const normalized = String(value ?? '').trim();
@@ -100,9 +115,64 @@ function normalizeUserData(userData = {}) {
   }) || {};
 }
 
+function getGraphApiVersion() {
+  return cleanValue(process.env.META_GRAPH_API_VERSION) || DEFAULT_GRAPH_API_VERSION;
+}
+
+function getOrderValue(order = {}) {
+  return Number(order.totalJod ?? order.total_jod ?? 0) || 0;
+}
+
+function getOrderId(order = {}) {
+  return cleanValue(order.id || order.order_id);
+}
+
+function getOrderPhone(order = {}) {
+  return normalizePhoneSafe(order.phone);
+}
+
+function getOrderDeliveryType(order = {}) {
+  return cleanValue(order.deliveryType || order.delivery_type);
+}
+
+function getOrderPaymentMethod(order = {}) {
+  return cleanValue(order.paymentMethod || order.payment_method);
+}
+
+function getLeadId(lead = {}) {
+  return cleanValue(lead.id || lead.lead_id);
+}
+
+function getLeadPhone(lead = {}) {
+  return normalizePhoneSafe(lead.phone);
+}
+
+function getLeadEmail(lead = {}) {
+  return cleanEmail(lead.email);
+}
+
 export function isMetaCrmEnabled() {
   const raw = String(process.env.META_CRM_ENABLED ?? 'true').trim().toLowerCase();
   return !META_DISABLED_VALUES.has(raw);
+}
+
+export function getMetaBaseUrl(config = {}) {
+  return cleanValue(process.env.BASE_URL) || cleanValue(config?.site?.baseUrl) || DEFAULT_BASE_URL;
+}
+
+export function getMetaCrmDiagnostics() {
+  const pixelId = cleanValue(process.env.META_PIXEL_ID);
+  const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
+  const testEventCode = cleanValue(process.env.META_TEST_EVENT_CODE);
+
+  return {
+    enabled: isMetaCrmEnabled(),
+    configured: Boolean(pixelId && accessToken),
+    pixelIdConfigured: Boolean(pixelId),
+    accessTokenConfigured: Boolean(accessToken),
+    testEventCodeConfigured: Boolean(testEventCode),
+    graphApiVersion: getGraphApiVersion()
+  };
 }
 
 export function buildMetaRequestContext(req, rawMeta = {}, fallbackUrl = '') {
@@ -122,7 +192,137 @@ export function buildMetaRequestContext(req, rawMeta = {}, fallbackUrl = '') {
   };
 }
 
+export function createLeadMetaEvent(config, {
+  lead = {},
+  userData = {},
+  eventId,
+  eventSourceUrl,
+  source = 'website',
+  preferredChannel = 'whatsapp',
+  customData = {}
+} = {}) {
+  return pruneObject({
+    event_name: 'Lead',
+    action_source: 'website',
+    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/contact.html`,
+    event_id: cleanValue(eventId) || `lead-${getLeadId(lead) || crypto.randomUUID()}`,
+    user_data: pruneObject({
+      phone: getLeadPhone(lead),
+      email: getLeadEmail(lead),
+      external_id: getLeadId(lead),
+      ...userData
+    }) || {},
+    custom_data: pruneObject({
+      content_name: 'website_lead',
+      content_category: 'lead',
+      lead_id: getLeadId(lead),
+      lead_source: cleanValue(source) || 'website',
+      preferred_channel: cleanValue(preferredChannel) || 'whatsapp',
+      crm_stage: 'new',
+      ...customData
+    }) || {}
+  }) || {};
+}
+
+export function createOrderCheckoutMetaEvent(config, {
+  order = {},
+  userData = {},
+  eventId,
+  eventSourceUrl,
+  source = 'website',
+  customData = {}
+} = {}) {
+  return pruneObject({
+    event_name: 'InitiateCheckout',
+    action_source: 'website',
+    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/order.html`,
+    event_id: cleanValue(eventId) || `checkout-${getOrderId(order) || crypto.randomUUID()}`,
+    user_data: pruneObject({
+      phone: getOrderPhone(order),
+      external_id: getOrderId(order),
+      ...userData
+    }) || {},
+    custom_data: pruneObject({
+      currency: 'JOD',
+      value: Number(getOrderValue(order).toFixed(3)),
+      content_name: 'order_submitted',
+      content_category: 'kitchen_order',
+      order_id: getOrderId(order),
+      delivery_type: getOrderDeliveryType(order),
+      payment_method: getOrderPaymentMethod(order),
+      num_items: Array.isArray(order.items) ? order.items.length : undefined,
+      crm_stage: 'new',
+      order_source: cleanValue(source) || 'website',
+      ...customData
+    }) || {}
+  }) || {};
+}
+
+export function createOrderStatusMetaEvent(config, {
+  order = {},
+  status,
+  userData = {},
+  eventId,
+  eventSourceUrl,
+  actionSource = 'system_generated',
+  customData = {}
+} = {}) {
+  const normalizedStatus = String(status || order.status || '').trim();
+  const mapping = ORDER_STATUS_EVENT_MAP[normalizedStatus];
+
+  if (!mapping) return null;
+
+  return pruneObject({
+    event_name: mapping.eventName,
+    action_source: actionSource,
+    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/track.html`,
+    event_id: cleanValue(eventId) || `${mapping.eventName.toLowerCase()}-${getOrderId(order) || crypto.randomUUID()}`,
+    user_data: pruneObject({
+      phone: getOrderPhone(order),
+      external_id: getOrderId(order),
+      ...userData
+    }) || {},
+    custom_data: pruneObject({
+      order_id: getOrderId(order),
+      status: normalizedStatus,
+      crm_stage: mapping.crmStage,
+      value: Number(getOrderValue(order).toFixed(3)),
+      currency: 'JOD',
+      delivery_type: getOrderDeliveryType(order),
+      payment_method: getOrderPaymentMethod(order),
+      content_name: mapping.contentName,
+      content_category: 'kitchen_order',
+      ...customData
+    }) || {}
+  }) || {};
+}
+
+export async function trackLeadCreated(config, payload = {}) {
+  return sendMetaEvent(config, createLeadMetaEvent(config, payload));
+}
+
+export async function trackOrderCreated(config, payload = {}) {
+  return sendMetaEvent(config, createOrderCheckoutMetaEvent(config, payload));
+}
+
+export async function trackOrderStatusChanged(config, payload = {}) {
+  const event = createOrderStatusMetaEvent(config, payload);
+
+  if (!event) {
+    return {
+      skipped: true,
+      reason: `STATUS_NOT_TRACKED:${payload?.status || payload?.order?.status || 'unknown'}`
+    };
+  }
+
+  return sendMetaEvent(config, event);
+}
+
 export async function sendMetaEvent(config, event = {}) {
+  if (!event || typeof event !== 'object' || Object.keys(event).length === 0) {
+    return { skipped: true, reason: 'EMPTY_EVENT' };
+  }
+
   if (!isMetaCrmEnabled()) {
     return { skipped: true, reason: 'META_CRM_ENABLED=false' };
   }
@@ -140,7 +340,7 @@ export async function sendMetaEvent(config, event = {}) {
         event_name: event.event_name || 'PageView',
         event_time: Number(event.event_time || Math.floor(Date.now() / 1000)),
         action_source: event.action_source || 'website',
-        event_source_url: event.event_source_url || config?.site?.baseUrl,
+        event_source_url: event.event_source_url || getMetaBaseUrl(config),
         event_id: event.event_id || crypto.randomUUID(),
         user_data: normalizeUserData(event.user_data || {}),
         custom_data: pruneObject(event.custom_data || {})
@@ -151,7 +351,7 @@ export async function sendMetaEvent(config, event = {}) {
 
   try {
     const response = await fetch(
-      `https://graph.facebook.com/v22.0/${pixelId}/events?access_token=${accessToken}`,
+      `https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events?access_token=${accessToken}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
