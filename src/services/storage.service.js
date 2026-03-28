@@ -92,6 +92,16 @@ function isWithinJordanPeriod(value, period = 'today', referenceDate = new Date(
   return false;
 }
 
+function isDuplicateOrderIdError(error) {
+  return (
+    error?.status === 409 &&
+    (
+      error?.payload?.code === '23505' ||
+      /duplicate key value/i.test(String(error?.message || ''))
+    )
+  );
+}
+
 async function upsertCustomerInternal(rootDir, payload) {
   const row = {
     phone: payload.phone,
@@ -234,13 +244,48 @@ export async function createOrder(rootDir, order) {
     tags: order.customerTags || undefined
   });
 
-  const orderRow = normalizeOrderRow(order, customer?.id || null);
-
   if (isSupabaseEnabled()) {
-    const insertedOrder = await insertRows('orders', orderRow);
-    const orderItems = normalizeOrderItems(order);
-    if (orderItems.length) await insertRows('order_items', orderItems, { returnMinimal: true });
-    return Array.isArray(insertedOrder) ? insertedOrder[0] : insertedOrder;
+    let currentOrder = { ...order };
+    let attempts = 0;
+    let lastError = null;
+
+    while (attempts < 5) {
+      try {
+        const orderRow = normalizeOrderRow(currentOrder, customer?.id || null);
+        const insertedOrder = await insertRows('orders', orderRow);
+        const orderItems = normalizeOrderItems(currentOrder);
+
+        if (orderItems.length) {
+          await insertRows('order_items', orderItems, { returnMinimal: true });
+        }
+
+        return Array.isArray(insertedOrder) ? insertedOrder[0] : insertedOrder;
+      } catch (error) {
+        lastError = error;
+
+        if (!isDuplicateOrderIdError(error)) {
+          throw error;
+        }
+
+        attempts += 1;
+
+        console.warn('ORDER_ID_CONFLICT_RETRY', {
+          attempt: attempts,
+          previousId: currentOrder.id,
+          message: error?.message || null,
+          payload: error?.payload || null
+        });
+
+        const freshId = await generateNextOrderCode(rootDir);
+        currentOrder = {
+          ...currentOrder,
+          id: freshId,
+          updatedAt: new Date().toISOString()
+        };
+      }
+    }
+
+    throw lastError;
   }
 
   const orders = loadCollection(rootDir, 'orders');
@@ -546,11 +591,13 @@ export async function generateNextOrderCode(rootDir) {
   } else {
     ids = loadCollection(rootDir, 'orders').map(item => item.id).filter(Boolean);
   }
+
   const maxNumber = ids.reduce((max, id) => {
     const match = String(id).match(/^MAE(\d+)$/i);
     if (!match) return max;
     return Math.max(max, Number(match[1]));
   }, 0);
+
   return `MAE${String(maxNumber + 1).padStart(3, '0')}`;
 }
 
