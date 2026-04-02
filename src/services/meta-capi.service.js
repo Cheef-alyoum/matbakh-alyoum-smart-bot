@@ -5,6 +5,7 @@ const META_DISABLED_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled']);
 const DEFAULT_GRAPH_API_VERSION = 'v25.0';
 const DEFAULT_BASE_URL = 'https://matbakh-alyoum.site';
 const DEFAULT_LEAD_EVENT_SOURCE = 'Matbakh Alyoum CRM';
+const APP_SECRET_ENV_KEYS = ['META_APP_SECRET', 'APP_SECRET'];
 
 const ORDER_STATUS_EVENT_MAP = {
   approved: {
@@ -27,6 +28,27 @@ function cleanValue(value) {
 function cleanEmail(value) {
   const normalized = cleanValue(value);
   return normalized ? normalized.toLowerCase() : undefined;
+}
+
+function isDisabledFlag(value, defaultValue = false) {
+  const normalized = cleanValue(value);
+  if (!normalized) return defaultValue;
+  return META_DISABLED_VALUES.has(normalized.toLowerCase());
+}
+
+function getConfiguredAppSecret() {
+  for (const key of APP_SECRET_ENV_KEYS) {
+    const value = cleanValue(process.env[key]);
+    if (value) {
+      return { key, value };
+    }
+  }
+
+  return { key: null, value: undefined };
+}
+
+function shouldUseAppSecretProof() {
+  return !isDisabledFlag(process.env.META_SEND_APPSECRET_PROOF, false);
 }
 
 function normalizePhoneSafe(value) {
@@ -55,6 +77,7 @@ function pruneObject(value) {
     const items = value
       .map(item => pruneObject(item))
       .filter(item => item !== undefined && item !== null && item !== '');
+
     return items.length ? items : undefined;
   }
 
@@ -84,7 +107,9 @@ function resolveClientIp(req) {
   }
 
   const direct = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'];
-  if (direct) return String(direct).trim().replace(/^::ffff:/, '');
+  if (direct) {
+    return String(direct).trim().replace(/^::ffff:/, '');
+  }
 
   return req.socket?.remoteAddress
     ? String(req.socket.remoteAddress).replace(/^::ffff:/, '')
@@ -167,6 +192,57 @@ function buildAppSecretProof(accessToken, appSecret) {
     .digest('hex');
 }
 
+function buildEventsApiUrl(pixelId, accessToken, { appSecretProof } = {}) {
+  const requestUrl = new URL(`https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events`);
+
+  requestUrl.searchParams.set('access_token', accessToken);
+
+  if (appSecretProof) {
+    requestUrl.searchParams.set('appsecret_proof', appSecretProof);
+  }
+
+  return requestUrl;
+}
+
+function extractMetaErrorMessage(result) {
+  return String(
+    result?.data?.error?.message ||
+    result?.error ||
+    ''
+  ).trim();
+}
+
+function isInvalidAppSecretProofResult(result) {
+  const message = extractMetaErrorMessage(result).toLowerCase();
+  return message.includes('invalid appsecret_proof');
+}
+
+async function performMetaRequest(requestUrl, payload) {
+  try {
+    const response = await fetch(requestUrl.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+      payload
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: error.message,
+      payload
+    };
+  }
+}
+
 export function isMetaCrmEnabled() {
   const raw = String(process.env.META_CRM_ENABLED ?? 'true').trim().toLowerCase();
   return !META_DISABLED_VALUES.has(raw);
@@ -179,7 +255,7 @@ export function getMetaBaseUrl(config = {}) {
 export function getMetaCrmDiagnostics() {
   const pixelId = cleanValue(process.env.META_PIXEL_ID);
   const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
-  const appSecret = cleanValue(process.env.APP_SECRET);
+  const appSecretInfo = getConfiguredAppSecret();
   const testEventCode = cleanValue(process.env.META_TEST_EVENT_CODE);
 
   return {
@@ -187,8 +263,10 @@ export function getMetaCrmDiagnostics() {
     configured: Boolean(pixelId && accessToken),
     pixelIdConfigured: Boolean(pixelId),
     accessTokenConfigured: Boolean(accessToken),
-    appSecretConfigured: Boolean(appSecret),
-    appSecretProofConfigured: Boolean(accessToken && appSecret),
+    appSecretConfigured: Boolean(appSecretInfo.value),
+    appSecretEnvKey: appSecretInfo.key,
+    appSecretProofEnabled: shouldUseAppSecretProof(),
+    appSecretProofConfigured: Boolean(accessToken && appSecretInfo.value && shouldUseAppSecretProof()),
     testEventCodeConfigured: Boolean(testEventCode),
     graphApiVersion: getGraphApiVersion(),
     leadEventSource: getLeadEventSource()
@@ -355,7 +433,8 @@ export async function sendMetaEvent(config, event = {}) {
 
   const pixelId = cleanValue(process.env.META_PIXEL_ID);
   const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
-  const appSecret = cleanValue(process.env.APP_SECRET);
+  const appSecretInfo = getConfiguredAppSecret();
+  const appSecret = appSecretInfo.value;
 
   if (!pixelId || !accessToken) {
     return { skipped: true, reason: 'META_PIXEL_ID أو META_ACCESS_TOKEN غير مضبوطين.' };
@@ -376,38 +455,44 @@ export async function sendMetaEvent(config, event = {}) {
     test_event_code: cleanValue(process.env.META_TEST_EVENT_CODE)
   });
 
-  const requestUrl = new URL(
-    `https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events`
-  );
+  const wantsProof = shouldUseAppSecretProof();
+  const appSecretProof = wantsProof ? buildAppSecretProof(accessToken, appSecret) : undefined;
+  const triedWithProof = Boolean(appSecretProof);
 
-  requestUrl.searchParams.set('access_token', accessToken);
+  const firstUrl = buildEventsApiUrl(pixelId, accessToken, { appSecretProof });
+  const firstResult = await performMetaRequest(firstUrl, payload);
 
-  const appSecretProof = buildAppSecretProof(accessToken, appSecret);
-  if (appSecretProof) {
-    requestUrl.searchParams.set('appsecret_proof', appSecretProof);
-  }
-
-  try {
-    const response = await fetch(requestUrl.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await response.json().catch(() => ({}));
-
+  if (firstResult.ok) {
     return {
-      ok: response.ok,
-      status: response.status,
-      data,
-      payload
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      error: error.message,
-      payload
+      ...firstResult,
+      used_appsecret_proof: triedWithProof,
+      app_secret_env_key: appSecretInfo.key || null
     };
   }
+
+  if (triedWithProof && isInvalidAppSecretProofResult(firstResult)) {
+    console.warn('META_APPSECRET_PROOF_RETRY_WITHOUT_PROOF', JSON.stringify({
+      status: firstResult.status,
+      error: firstResult.data?.error || firstResult.error || null,
+      appSecretEnvKey: appSecretInfo.key || null
+    }));
+
+    const retryUrl = buildEventsApiUrl(pixelId, accessToken);
+    const retryResult = await performMetaRequest(retryUrl, payload);
+
+    return {
+      ...retryResult,
+      retried_without_appsecret_proof: true,
+      first_attempt_status: firstResult.status,
+      first_attempt_error: firstResult.data?.error || firstResult.error || null,
+      used_appsecret_proof: false,
+      app_secret_env_key: appSecretInfo.key || null
+    };
+  }
+
+  return {
+    ...firstResult,
+    used_appsecret_proof: triedWithProof,
+    app_secret_env_key: appSecretInfo.key || null
+  };
 }
