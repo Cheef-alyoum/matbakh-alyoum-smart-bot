@@ -33,6 +33,84 @@ const rootDir = __dirname;
 const publicDir = path.join(rootDir, 'public');
 const appConfig = loadAppConfig(path.join(rootDir, 'config.app.json'));
 
+function sendSafe404(res) {
+  const notFoundPath = path.join(publicDir, '404.html');
+
+  try {
+    if (fs.existsSync(notFoundPath)) {
+      const html = fs.readFileSync(notFoundPath, 'utf8');
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    }
+  } catch (error) {
+    console.error('404_PAGE_READ_ERROR', error);
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404 - الصفحة غير موجودة</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #faf7f2;
+      color: #2b2b2b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 24px;
+    }
+    .box {
+      max-width: 560px;
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 32px 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+      color: #8b5e3c;
+    }
+    p {
+      margin: 0 0 10px;
+      line-height: 1.9;
+      font-size: 17px;
+    }
+    a {
+      display: inline-block;
+      margin-top: 18px;
+      text-decoration: none;
+      background: #8b5e3c;
+      color: #fff;
+      padding: 12px 22px;
+      border-radius: 10px;
+      font-size: 16px;
+    }
+    a:hover {
+      opacity: 0.92;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>404</h1>
+    <p>عذرًا، الصفحة التي تبحث عنها غير موجودة.</p>
+    <p>يمكنك العودة إلى الصفحة الرئيسية.</p>
+    <a href="/">العودة للرئيسية</a>
+  </div>
+</body>
+</html>
+  `);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const safeHost = req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || `0.0.0.0:${process.env.PORT || 10000}`;
@@ -305,16 +383,20 @@ const server = http.createServer(async (req, res) => {
       return sendFile(res, filePath, ext, noIndex);
     }
 
-    return sendFile(res, path.join(publicDir, '404.html'), '.html');
+    return sendSafe404(res);
   } catch (error) {
     console.error('SERVER_ERROR', error);
 
-    if (res && typeof res.writeHead === 'function') {
+    if (res && typeof res.writeHead === 'function' && !res.headersSent) {
       return json(res, 500, {
         ok: false,
         message: 'حدث خطأ داخلي غير متوقع.',
         error: error.message
       });
+    }
+
+    if (res && typeof res.end === 'function' && !res.writableEnded) {
+      res.end();
     }
   }
 });
