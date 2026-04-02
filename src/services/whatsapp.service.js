@@ -206,6 +206,105 @@ function buildLocationText(message) {
   return parts.join(' — ');
 }
 
+function readInteractiveSelectionTitle(message) {
+  if (message?.type === 'interactive' && message.interactive?.type === 'button_reply') {
+    return message.interactive.button_reply?.title || message.interactive.button_reply?.id || '';
+  }
+
+  if (message?.type === 'interactive' && message.interactive?.type === 'list_reply') {
+    return message.interactive.list_reply?.title || message.interactive.list_reply?.id || '';
+  }
+
+  if (message?.type === 'button') {
+    return message.button?.text || message.button?.payload || '';
+  }
+
+  return '';
+}
+
+function buildIncomingMessageLogText(message) {
+  if (!message) return '';
+
+  const type = message.type || '';
+
+  if (type === 'text') {
+    return String(message.text?.body || '').trim();
+  }
+
+  if (type === 'location') {
+    return buildLocationText(message);
+  }
+
+  if (type === 'interactive' || type === 'button') {
+    return readInteractiveSelectionTitle(message) || JSON.stringify(message);
+  }
+
+  if (type === 'image') {
+    const caption = String(message.image?.caption || '').trim();
+    return caption ? `[صورة] ${caption}` : '[صورة]';
+  }
+
+  if (type === 'video') {
+    const caption = String(message.video?.caption || '').trim();
+    return caption ? `[فيديو] ${caption}` : '[فيديو]';
+  }
+
+  if (type === 'audio') {
+    return message.audio?.voice ? '[رسالة صوتية]' : '[ملف صوتي]';
+  }
+
+  if (type === 'document') {
+    const filename = String(message.document?.filename || '').trim();
+    return filename ? `[ملف] ${filename}` : '[ملف]';
+  }
+
+  if (type === 'sticker') {
+    return '[ملصق]';
+  }
+
+  if (type === 'contacts') {
+    const firstName = message.contacts?.[0]?.name?.formatted_name || '';
+    return firstName ? `[جهة اتصال] ${firstName}` : '[جهة اتصال]';
+  }
+
+  if (type === 'reaction') {
+    return `[تفاعل] ${message.reaction?.emoji || ''}`.trim();
+  }
+
+  return JSON.stringify(message);
+}
+
+function buildRichContentReply(message, config, req) {
+  const links = buildTextLinks(config, req);
+  const directPhoneLine = links.phone ? `\nموظف مباشر: ${links.phone}` : '';
+
+  if (message?.type === 'audio') {
+    return `وصلتنا رسالتك الصوتية 🌿\nتم تسجيلها بنجاح. حاليًا أسرع مسار للتنفيذ هو كتابة الطلب نصًا أو اختيار "اطلب الآن" أو "المنيو".${directPhoneLine}`;
+  }
+
+  if (message?.type === 'image') {
+    return `وصلتنا الصورة 🌿\nإذا كانت الصورة مرتبطة بطلب أو موقع أو ملاحظة، اكتب شرحًا قصيرًا معها لنخدمك بدقة. يمكنك أيضًا كتابة "اطلب الآن" أو "المنيو" للمتابعة.${directPhoneLine}`;
+  }
+
+  if (message?.type === 'video') {
+    return `وصلنا الفيديو 🌿\nلإكمال الخدمة بسرعة، اكتب المطلوب نصًا أو استخدم "اطلب الآن" أو "المنيو".${directPhoneLine}`;
+  }
+
+  if (message?.type === 'document') {
+    return `وصلنا الملف 🌿\nاكتب لنا المطلوب بخصوص الملف أو ابدأ عبر "اطلب الآن" أو "المنيو".${directPhoneLine}`;
+  }
+
+  if (message?.type === 'contacts') {
+    return `وصلتنا جهة الاتصال 🌿\nاكتب لنا الطلب أو الملاحظة المطلوبة وسنكمل معك مباشرة.${directPhoneLine}`;
+  }
+
+  if (message?.type === 'sticker' || message?.type === 'reaction') {
+    return `وصلتنا رسالتك 🌿\nللمتابعة العملية اكتب "اطلب الآن" أو "المنيو" أو "تتبع طلبي".${directPhoneLine}`;
+  }
+
+  return `وصلتنا رسالتك 🌿\nحاليًا ندعم الأزرار والنص والموقع، وبعض أنواع المحتوى مع متابعة نصية. اكتب "اطلب الآن" أو "المنيو" للمتابعة.${directPhoneLine}`;
+}
+
 function baseUnitLabel(item) {
   return getDisplayUnit(item);
 }
@@ -1051,6 +1150,10 @@ function readIncomingSelection(message, rootDir = '') {
     return message.interactive.list_reply?.id || '';
   }
 
+  if (message.type === 'button') {
+    return message.button?.payload || message.button?.text || '';
+  }
+
   const rawText = String(message.text?.body || '').trim();
   const simple = normalizeUserText(rawText);
 
@@ -1601,7 +1704,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         id: message.id || crypto.randomUUID(),
         from,
         type,
-        text: type === 'text' ? text : type === 'location' ? buildLocationText(message) : JSON.stringify(message),
+        text: buildIncomingMessageLogText(message),
         payload: message
       });
     } catch (error) {
@@ -1610,7 +1713,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     /* ========= ADMIN FLOW ========= */
 
-    if (isAdminPhone(from, config) && type === 'interactive') {
+    if (isAdminPhone(from, config) && (type === 'interactive' || type === 'button')) {
       const selection = readIncomingSelection(message, rootDir);
 
       if (
@@ -2450,8 +2553,13 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered, mode: 'notes_saved' });
     }
 
-    if (type !== 'text' && type !== 'interactive' && type !== 'location') {
-      const delivered = await sendWhatsAppText(rootDir, to, 'وصلتنا رسالتك 🌿 حاليًا ندعم الأزرار والنص والموقع. اكتب "اطلب الآن" أو "المنيو" للمتابعة.');
+    if (['audio', 'image', 'video', 'document', 'sticker', 'contacts', 'reaction'].includes(type)) {
+      const delivered = await sendWhatsAppText(rootDir, to, buildRichContentReply(message, config, req));
+      return json(res, 200, { ok: true, delivered, mode: `rich_content_${type}` });
+    }
+
+    if (type !== 'text' && type !== 'interactive' && type !== 'location' && type !== 'button') {
+      const delivered = await sendWhatsAppText(rootDir, to, buildRichContentReply(message, config, req));
       return json(res, 200, { ok: true, delivered, mode: 'unsupported_media' });
     }
 
