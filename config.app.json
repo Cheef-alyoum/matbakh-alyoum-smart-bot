@@ -1,9 +1,9 @@
 {
   "ok": true,
-  "app": "مطبخ اليوم المركزي",
+  "app": "مطبخ اليوم المركزي - البوت التشغيلي",
   "business": "مطبخ اليوم المركزي",
   "timezone": "Asia/Amman",
-  "today": "24/03/2026",
+  "today": "06/04/2026",
   "adminCount": 3,
   "directCallPhone": "0779960015",
   "orderWindow": {
@@ -34,27 +34,27 @@
   },
   "seo": {
     "primaryKeywords": [
+      "مطبخ اليوم المركزي",
       "أكل بيتي في عمان",
       "طلب أكل بيتي في عمان",
       "محاشي في عمان",
       "ورق عنب في عمان",
       "مقلوبة في عمان",
-      "يالنجي في عمان",
       "مطبخ منزلي في عمان",
+      "أكل جاهز للطبخ في عمان",
       "مفرزات في عمان",
-      "طبخات بيتية في عمان",
       "توصيل أكل بيتي في عمان"
     ],
-    "brandDescription": "مطبخ اليوم المركزي في عمّان متخصص بالأكل البيتي المحلي، المحاشي، الأطباق الرئيسية، المفرزات، والطلبات المنزلية مع توصيل منظم وطلب مباشر عبر واتساب."
+    "brandDescription": "مطبخ اليوم المركزي في عمّان متخصص بالأكلات البيتية المحلية، المحاشي، الأطباق الرئيسية، الجاهز للطبخ، والمبرد والمفرز، مع خدمة طلب ومتابعة احترافية عبر واتساب وتوصيل منظم داخل عمّان."
   },
   "features": {
-    "publicWebsite": true,
+    "publicWebsite": false,
     "whatsappBot": true,
     "metaCapi": true,
     "voiceMessages": true,
-    "structuredData": true,
-    "publicMenu": true,
-    "publicOrderTracking": true,
+    "structuredData": false,
+    "publicMenu": false,
+    "publicOrderTracking": false,
     "deliveryZones": true,
     "cashOnDeliveryOnly": true,
     "customerMemoryByPhone": true,
@@ -68,25 +68,80 @@
   ],
   "businessConfig": {
     "brandNameAr": "مطبخ اليوم المركزي",
-    "brandNameEn": "Matbakh Al-youm Al-markazi",
-    "shortDescription": "مطبخ اليوم مطبخ منزلي مركزي في عمّان، يقدّم أكلات بيتية محلية بطعم أصيل وجودة عالية، مع خيارات جاهزة للأكل، جاهزة للطبخ، ومبرّدة أو مفرّزة، وخدمة توصيل منزلي سريع.",
-    "toneOfVoice": "لهجة أردنية محلية واضحة، بأسلوب شيف محترف وراقي، تمثل علامة تجارية قوية وموثوقة.",
-    "emojiUsage": "نعم - استخدام خفيف ومريح بصرياً",
+    "brandNameEn": "Matbakh Al Youm Central Kitchen",
+    "shortDescription": "مطبخ اليوم مطبخ منزلي مركزي في عمّان يقدّم أكلات بيتية محلية بطعم أصيل وجودة عالية، مع خيارات مطبوخة، جاهزة للطبخ، ومبردة أو مفرزة، وخدمة طلب ومتابعة مرتبة عبر واتساب.",
+    "toneOfVoice": "لهجة أردنية محلية واضحة، راقية، مطمئنة، سريعة، ومباشرة، تعكس مطبخًا منظمًا وموثوقًا.",
+    "emojiUsage": "نعم - استخدام خفيف وراقي ومرتبط بالخدمة فقط",
     "whatsappPrimary": "962779960015",
+    "whatsappDisplay": "0779960015",
     "email": "info@matbakh-alyoum.site",
-    "addressShort": "عمان – أم السماق",
+    "addressShort": "عمّان - أم السماق",
     "messageReceptionHours": "24/7",
+    "orderReceptionHours": "10:00 AM - 05:30 PM",
     "prepHours": "10:00 AM - 06:30 PM",
     "deliveryHours": "10:00 AM - 06:30 PM",
-    "sameDayRule": "طلب اليوم نفسه قبل 90-120 دقيقة على الأقل",
-    "scheduledRule": "الطلبات المجدولة مسموحة ضمن ساعات العمل",
-    "finalConfirmationRule": "لا يتم اعتماد أي طلب نهائياً إلا بموافقة صريحة من رقم إداري معتمد",
-    "customerUiRule": "تعامل العميل بالأزرار قدر الإمكان؛ النص الحر فقط للملاحظات العامة أو الخاصة بالطلب",
-    "dataRetention": "نعم - للاستخدام التشغيلي والتحليل الداخلي وتحسين الخدمة",
-    "marketingMessages": "فقط بموافقة الإدارة",
-    "followupWindow": "خلال 24 ساعة كحد أقصى",
+    "sameDayRule": "طلبات اليوم نفسه تُقبل قبل موعد التسليم بمدة كافية لا تقل غالبًا عن 90 إلى 120 دقيقة حسب الضغط والتوفر والمنطقة.",
+    "scheduledRule": "الطلبات المجدولة متاحة ضمن ساعات العمل المعتمدة وبحسب توفر الأصناف والطاقة التشغيلية.",
+    "finalConfirmationRule": "لا يتم اعتماد أي طلب نهائيًا إلا بموافقة صريحة من رقم إداري معتمد.",
+    "customerUiRule": "يُفضّل توجيه العميل عبر الأزرار والقوائم المختصرة، ويُستخدم النص الحر للملاحظات أو العنوان أو الحالات الخاصة فقط.",
+    "dataRetention": "نعم - للاستخدام التشغيلي والتحليل الداخلي وتحسين جودة الخدمة والمبيعات ضمن الصلاحيات المعتمدة.",
+    "marketingMessages": "تُرسل فقط بموافقة الإدارة وضمن موافقة العميل والسياسات المعتمدة.",
+    "followupWindow": "خلال 24 ساعة كحد أقصى بعد التسليم أو عند الحاجة.",
     "paymentMethodsAllowed": "الدفع عند الاستلام - كاش",
     "defaultPaymentMethod": "الدفع عند الاستلام - كاش"
+  },
+  "channels": {
+    "website": "https://matbakh-alyoum.site",
+    "menu": "https://matbakh-alyoum.site/menu.html",
+    "order": "https://matbakh-alyoum.site/order.html",
+    "tracking": "https://matbakh-alyoum.site/track.html",
+    "whatsappClick": "https://wa.me/962779960015",
+    "facebook": "https://www.facebook.com/MatbakhAlYoum",
+    "instagram": "https://www.instagram.com/matbakhalyoum",
+    "snapchat": "https://www.snapchat.com/add/matbakhalyoum",
+    "youtubeHandle": "matbakhalyoum",
+    "email": "info@matbakh-alyoum.site"
+  },
+  "customerExperience": {
+    "greetingGoal": "استقبال سريع ومرتب يوضح للعميل أنه يتعامل مع مطبخ احترافي منظم وليس مجرد رقم واتساب.",
+    "responseStyle": "مختصر وواضح وودود ومهني، مع تقليل الإطالة وتقليل الأسئلة غير الضرورية.",
+    "escalationRule": "أي شكوى حساسة أو طلب كبير أو حالة ارتباك أو تعديل جوهري يتم تصعيدها بسرعة إلى موظف أو إدارة معتمدة.",
+    "complaintHandling": "الاعتذار أولًا، ثم التحقق، ثم تقديم حل واضح، ثم متابعة الإغلاق باحترام وسرعة.",
+    "followupAfterDelivery": true
+  },
+  "operations": {
+    "orderStatuses": [
+      "awaiting_admin_review",
+      "awaiting_customer_edit",
+      "approved",
+      "preparing",
+      "ready",
+      "out_for_delivery",
+      "delivered",
+      "rejected",
+      "customer_exit"
+    ],
+    "customerVisibleStatuses": {
+      "awaiting_admin_review": "بانتظار اعتماد الإدارة",
+      "awaiting_customer_edit": "بانتظار استكمال أو تعديل من العميل",
+      "approved": "تم اعتماد الطلب",
+      "preparing": "قيد التحضير",
+      "ready": "جاهز",
+      "out_for_delivery": "قيد التوصيل",
+      "delivered": "تم التسليم",
+      "rejected": "لم يتم الاعتماد",
+      "customer_exit": "تم إغلاق المحادثة الحالية"
+    },
+    "adminControl": {
+      "approvalRequired": true,
+      "statusChangesByAdminsOnly": true,
+      "customerCannotSelfApprove": true
+    },
+    "sla": {
+      "firstReplyTarget": "أقل من 2 دقيقة داخل ساعات العمل",
+      "followupTarget": "تحديث واضح عند كل انتقال رئيسي في حالة الطلب",
+      "complaintFirstHandling": "بأسرع وقت ممكن وبأولوية عالية"
+    }
   },
   "security": {
     "storeMessagesForOperations": true,
