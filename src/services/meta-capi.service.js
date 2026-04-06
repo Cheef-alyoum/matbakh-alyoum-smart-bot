@@ -36,6 +36,28 @@ function isDisabledFlag(value, defaultValue = false) {
   return META_DISABLED_VALUES.has(normalized.toLowerCase());
 }
 
+function normalizeUrl(value) {
+  const raw = cleanValue(value);
+  if (!raw) return undefined;
+
+  try {
+    return new URL(raw).toString().replace(/\/$/, '');
+  } catch {
+    return undefined;
+  }
+}
+
+function buildAbsoluteUrl(baseUrl, targetPath = '/') {
+  const normalizedBase = normalizeUrl(baseUrl);
+  if (!normalizedBase) return undefined;
+
+  try {
+    return new URL(targetPath, `${normalizedBase}/`).toString();
+  } catch {
+    return undefined;
+  }
+}
+
 function getConfiguredAppSecret() {
   for (const key of APP_SECRET_ENV_KEYS) {
     const value = cleanValue(process.env[key]);
@@ -120,6 +142,46 @@ function getLeadEventSource() {
   return cleanValue(process.env.META_CRM_SOURCE_NAME) || DEFAULT_LEAD_EVENT_SOURCE;
 }
 
+function getMetaWebsiteBaseUrl(config = {}) {
+  return (
+    normalizeUrl(process.env.WEBSITE_URL) ||
+    normalizeUrl(process.env.BASE_URL) ||
+    normalizeUrl(config?.channels?.website) ||
+    normalizeUrl(config?.site?.baseUrl) ||
+    DEFAULT_BASE_URL
+  );
+}
+
+function getMetaBaseUrl(config = {}) {
+  return getMetaWebsiteBaseUrl(config);
+}
+
+function getLeadSourceUrl(config = {}) {
+  return (
+    normalizeUrl(process.env.META_LEAD_SOURCE_URL) ||
+    buildAbsoluteUrl(getMetaWebsiteBaseUrl(config), '/') ||
+    DEFAULT_BASE_URL
+  );
+}
+
+function getOrderSourceUrl(config = {}) {
+  return (
+    normalizeUrl(process.env.META_ORDER_SOURCE_URL) ||
+    normalizeUrl(config?.channels?.order) ||
+    buildAbsoluteUrl(getMetaWebsiteBaseUrl(config), '/order.html') ||
+    DEFAULT_BASE_URL
+  );
+}
+
+function getTrackSourceUrl(config = {}) {
+  return (
+    normalizeUrl(process.env.META_TRACK_SOURCE_URL) ||
+    normalizeUrl(config?.channels?.tracking) ||
+    buildAbsoluteUrl(getMetaWebsiteBaseUrl(config), '/track.html') ||
+    DEFAULT_BASE_URL
+  );
+}
+
 function normalizeUserData(userData = {}) {
   const phone = normalizePhoneSafe(userData.phone);
   const email = cleanEmail(userData.email);
@@ -194,7 +256,6 @@ function buildAppSecretProof(accessToken, appSecret) {
 
 function buildEventsApiUrl(pixelId, accessToken, { appSecretProof } = {}) {
   const requestUrl = new URL(`https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events`);
-
   requestUrl.searchParams.set('access_token', accessToken);
 
   if (appSecretProof) {
@@ -248,9 +309,7 @@ export function isMetaCrmEnabled() {
   return !META_DISABLED_VALUES.has(raw);
 }
 
-export function getMetaBaseUrl(config = {}) {
-  return cleanValue(process.env.BASE_URL) || cleanValue(config?.site?.baseUrl) || DEFAULT_BASE_URL;
-}
+export { getMetaBaseUrl };
 
 export function getMetaCrmDiagnostics() {
   const pixelId = cleanValue(process.env.META_PIXEL_ID);
@@ -269,7 +328,8 @@ export function getMetaCrmDiagnostics() {
     appSecretProofConfigured: Boolean(accessToken && appSecretInfo.value && shouldUseAppSecretProof()),
     testEventCodeConfigured: Boolean(testEventCode),
     graphApiVersion: getGraphApiVersion(),
-    leadEventSource: getLeadEventSource()
+    leadEventSource: getLeadEventSource(),
+    websiteBaseUrl: getMetaWebsiteBaseUrl({})
   };
 }
 
@@ -303,7 +363,7 @@ export function createLeadMetaEvent(config, {
   return pruneObject({
     event_name: 'Lead',
     action_source: 'system_generated',
-    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/contact.html`,
+    event_source_url: cleanValue(eventSourceUrl) || getLeadSourceUrl(config),
     event_id: cleanValue(eventId) || `lead-${getLeadId(lead) || crypto.randomUUID()}`,
     user_data: pruneObject({
       lead_id: getLeadId(lead),
@@ -333,7 +393,7 @@ export function createOrderCheckoutMetaEvent(config, {
   return pruneObject({
     event_name: 'InitiateCheckout',
     action_source: 'system_generated',
-    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/order.html`,
+    event_source_url: cleanValue(eventSourceUrl) || getOrderSourceUrl(config),
     event_id: cleanValue(eventId) || `checkout-${getOrderId(order) || crypto.randomUUID()}`,
     user_data: pruneObject({
       lead_id: getOrderId(order),
@@ -376,7 +436,7 @@ export function createOrderStatusMetaEvent(config, {
   return pruneObject({
     event_name: mapping.eventName,
     action_source: actionSource || 'system_generated',
-    event_source_url: cleanValue(eventSourceUrl) || `${getMetaBaseUrl(config)}/track.html`,
+    event_source_url: cleanValue(eventSourceUrl) || getTrackSourceUrl(config),
     event_id: cleanValue(eventId) || `${mapping.eventName.toLowerCase()}-${getOrderId(order) || crypto.randomUUID()}`,
     user_data: pruneObject({
       lead_id: getOrderId(order),
