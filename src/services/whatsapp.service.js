@@ -9,7 +9,6 @@ import {
   getMenuItemById,
   getRootById,
   getRootCategoryOptions,
-  getRootStatusOptions,
   getRootTypeOptions,
   resolveRootId
 } from './menu.service.js';
@@ -84,6 +83,8 @@ const BUTTON_IDS = {
 
 const TERMINAL_STATUSES = ['delivered', 'cancelled', 'rejected', 'customer_exit'];
 const TRACK_TERMS = /(حاله|حالة|متابعه|متابعة|track|tracking|status|طلبي|الطلب|وين طلبي|وين الطلب|طلبي وين)/i;
+const INCOMING_MESSAGE_CACHE = new Map();
+const INCOMING_MESSAGE_TTL_MS = 10 * 60 * 1000;
 
 function getSafeHost(req) {
   return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000';
@@ -102,6 +103,28 @@ export function whatsappVerify(req, res) {
   }
 
   return json(res, 403, { ok: false, message: 'فشل التحقق من Webhook.' });
+}
+
+function pruneIncomingMessageCache() {
+  const now = Date.now();
+
+  for (const [key, timestamp] of INCOMING_MESSAGE_CACHE.entries()) {
+    if (now - timestamp > INCOMING_MESSAGE_TTL_MS) {
+      INCOMING_MESSAGE_CACHE.delete(key);
+    }
+  }
+}
+
+function markIncomingMessageProcessed(messageId) {
+  if (!messageId) return;
+  pruneIncomingMessageCache();
+  INCOMING_MESSAGE_CACHE.set(String(messageId), Date.now());
+}
+
+function hasIncomingMessageBeenProcessed(messageId) {
+  if (!messageId) return false;
+  pruneIncomingMessageCache();
+  return INCOMING_MESSAGE_CACHE.has(String(messageId));
 }
 
 function normalizeUrl(value) {
@@ -554,19 +577,6 @@ function rootList(rootDir, page = 0) {
     'الأقسام الرئيسية',
     rows
   );
-}
-
-function statusButtonsForRoot(rootTitle = 'القسم', statusOptions = []) {
-  const buttons = statusOptions.slice(0, 3).map(option => ({
-    id: `status:${option.value}`,
-    title: shortButton(option.label)
-  }));
-
-  return {
-    type: 'button',
-    body: `اختر الحالة المطلوبة داخل ${rootTitle} 🌿`,
-    buttons: buttons.length ? buttons : [{ id: BUTTON_IDS.EXIT, title: 'خروج' }]
-  };
 }
 
 function typeButtonsForRoot(rootTitle = 'القسم', typeOptions = []) {
@@ -1779,6 +1789,24 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, ignored: true });
     }
 
+    const messageId = String(message.id || '').trim();
+    if (messageId && hasIncomingMessageBeenProcessed(messageId)) {
+      logWebhook('WEBHOOK_DUPLICATE_IGNORED', {
+        messageId,
+        from: message?.from || null,
+        type: message?.type || null
+      });
+
+      return json(res, 200, {
+        ok: true,
+        ignored: true,
+        duplicate: true,
+        messageId
+      });
+    }
+
+    markIncomingMessageProcessed(messageId);
+
     const from = normalizePhone(message.from || '').replace(/^\+/, '');
     const to = normalizePhone(message.from || '').replace(/^\+/, '');
     const type = message.type;
@@ -2077,26 +2105,6 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
       const delivered = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, readSessionData(session).orderDraft, 0));
       return json(res, 200, { ok: true, delivered, mode: 'type_selected' });
-    }
-
-    if (selection.startsWith('status:')) {
-      const statusValue = selection.split(':')[1];
-      const rootId = sessionData.orderDraft.rootId;
-
-      session = await persistSession(rootDir, from, session, {
-        currentState: 'item_list',
-        sessionData: {
-          ...sessionData,
-          orderDraft: {
-            ...sessionData.orderDraft,
-            rootId,
-            statusFilter: statusValue
-          }
-        }
-      });
-
-      const delivered = await sendWhatsAppInteractive(rootDir, to, itemList(rootDir, readSessionData(session).orderDraft, 0));
-      return json(res, 200, { ok: true, delivered, mode: 'status_selected' });
     }
 
     if (selection.startsWith('items_page:')) {
