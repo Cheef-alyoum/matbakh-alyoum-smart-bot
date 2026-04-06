@@ -54,6 +54,18 @@ function buildQueryString(filters = {}, options = {}) {
     params.set('limit', String(options.limit));
   }
 
+  if (options.offset !== undefined && options.offset !== null) {
+    params.set('offset', String(options.offset));
+  }
+
+  if (options.on_conflict) {
+    params.set('on_conflict', String(options.on_conflict));
+  }
+
+  if (options.onConflict) {
+    params.set('on_conflict', String(options.onConflict));
+  }
+
   return params.toString();
 }
 
