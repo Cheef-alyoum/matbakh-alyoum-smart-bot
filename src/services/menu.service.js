@@ -17,7 +17,7 @@ const ROOT_DEFINITIONS = [
   {
     id: 'frozen',
     title: '❄️ المفرزات',
-    description: 'أصناف مفرزة جاهزة للحفظ',
+    description: 'أصناف مفرزة وجاهزة للحفظ',
     kind: 'direct'
   }
 ];
@@ -70,6 +70,15 @@ const CATEGORY_ORDER = {
 
 const TYPE_ORDER = ['بلدي', 'روماني', 'مستورد', 'دجاج'];
 
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function safeString(value, fallback = '') {
+  const result = value == null ? '' : String(value).trim();
+  return result || fallback;
+}
+
 function normalizeArabic(value = '') {
   return String(value || '')
     .trim()
@@ -86,7 +95,7 @@ function uniqueBy(items, keyFn) {
   const seen = new Set();
   const result = [];
 
-  for (const item of items || []) {
+  for (const item of safeArray(items)) {
     const key = keyFn(item);
     if (key == null || seen.has(key)) continue;
     seen.add(key);
@@ -108,106 +117,40 @@ function sortByReference(values = [], reference = []) {
   });
 }
 
-export function resolveRootId(rootId = '') {
-  return ROOT_ALIASES[String(rootId || '').trim()] || String(rootId || '').trim();
+function loadMenu(rootDir) {
+  return safeArray(readJsonFile(path.join(rootDir, 'data', 'menu.api_items.json'), []));
 }
 
-export function getRootDefinitions() {
-  return ROOT_DEFINITIONS;
+function isMenuItemVisible(item) {
+  if (!item || typeof item !== 'object') return false;
+  if (item.menu_root === 'modifiers') return false;
+  return true;
 }
 
-export function getMenuData(rootDir) {
-  return readJsonFile(path.join(rootDir, 'data', 'menu.api_items.json'), []);
+function cleanRootId(rootId = '') {
+  const raw = safeString(rootId);
+  return ROOT_ALIASES[raw] || raw;
 }
 
-export function getMetaCatalog(rootDir) {
-  return readJsonFile(path.join(rootDir, 'data', 'meta_catalog.json'), []);
-}
+function normalizeRootValue(item) {
+  const root = cleanRootId(item?.menu_root || item?.root || '');
+  if (root) return root;
 
-export function getMenuSummary(rootDir) {
-  return readJsonFile(path.join(rootDir, 'data', 'menu.summary.json'), {});
-}
+  const category = normalizeArabic(item?.category_ar || '');
+  const section = normalizeArabic(item?.section_ar || '');
 
-export function getSections(rootDir) {
-  const items = getMenuData(rootDir).filter(item => item.menu_root !== 'modifiers');
-  const map = new Map();
-
-  for (const item of items) {
-    if (!map.has(item.section_ar)) map.set(item.section_ar, []);
-    map.get(item.section_ar).push(item);
+  if (
+    /خاروف|ضلعه|ضلعة|عزايم|ولائم/.test(category) ||
+    /خاروف|ضلعه|ضلعة|عزايم|ولائم/.test(section)
+  ) {
+    return 'catering';
   }
 
-  return [...map.entries()].map(([section_ar, sectionItems]) => ({
-    section_ar,
-    count: sectionItems.length,
-    slug: slugify(section_ar),
-    items: sectionItems
-  }));
-}
-
-export function getSectionBySlug(rootDir, sectionSlug) {
-  return getSections(rootDir).find(section => section.slug === slugify(sectionSlug)) || null;
-}
-
-export function getItemsBySection(rootDir, sectionName) {
-  return getMenuData(rootDir).filter(item => item.section_ar === sectionName);
-}
-
-export function getMenuItemById(rootDir, itemId) {
-  const wanted = String(itemId || '').trim();
-  if (!wanted) return null;
-
-  const normalizedWanted = normalizeArabic(wanted);
-
-  return getMenuData(rootDir).find(item => (
-    item.record_id === wanted ||
-    item.id === wanted ||
-    item.sku === wanted ||
-    normalizeArabic(item.display_name_ar) === normalizedWanted ||
-    normalizeArabic(item.item_name_ar) === normalizedWanted
-  )) || null;
-}
-
-export function searchMenu(rootDir, q) {
-  const query = normalizeArabic(q);
-  const items = getMenuData(rootDir).filter(item => item.menu_root !== 'modifiers');
-
-  if (!query) return items.slice(0, 20);
-
-  return items.filter(item => {
-    const haystack = normalizeArabic([
-      item.record_id,
-      item.sku,
-      item.section_ar,
-      item.item_name_ar,
-      item.display_name_ar,
-      item.category_ar,
-      item.type_ar,
-      item.unit_ar,
-      item.notes_ar
-    ].filter(Boolean).join(' '));
-
-    return haystack.includes(query);
-  }).slice(0, 50);
-}
-
-function baseItemsForRoot(rootDir, rootId) {
-  const items = getMenuData(rootDir);
-  const resolved = resolveRootId(rootId);
-
-  if (resolved === 'bundles') {
-    return items.filter(item => item.menu_root === 'bundles');
+  if (/مفرز/.test(normalizeArabic(item?.status || '')) || /مفرز/.test(category) || /مفرز/.test(section)) {
+    return 'frozen';
   }
 
-  if (resolved === 'catering') {
-    return items.filter(item => item.menu_root === 'catering');
-  }
-
-  if (resolved === 'frozen') {
-    return items.filter(item => item.menu_root === 'frozen');
-  }
-
-  return [];
+  return 'bundles';
 }
 
 function mapStatusFilter(statusFilter = '') {
@@ -238,12 +181,149 @@ function statusMatches(item, statusFilter) {
   const wanted = mapStatusFilter(statusFilter);
   if (!wanted) return true;
 
-  if (wanted === 'ready') return item.status === 'ready' || item.status === 'made_to_order';
-  if (wanted === 'raw') return item.status === 'raw';
-  if (wanted === 'frozen') return item.status === 'frozen';
-  if (wanted === 'made_to_order') return item.status === 'made_to_order';
+  const current = normalizeArabic(item?.status || '');
 
-  return item.status === wanted;
+  if (wanted === 'ready') return current === 'ready' || current === 'made_to_order';
+  if (wanted === 'raw') return current === 'raw';
+  if (wanted === 'frozen') return current === 'frozen';
+  if (wanted === 'made_to_order') return current === 'made_to_order';
+
+  return current === wanted;
+}
+
+function categoryMatches(item, categoryFilter) {
+  const wanted = normalizeArabic(categoryFilter);
+  if (!wanted) return true;
+
+  return normalizeArabic(item?.category_ar || '') === wanted;
+}
+
+function typeMatches(item, typeFilter) {
+  const wanted = normalizeArabic(mapTypeFilter(typeFilter));
+  if (!wanted) return true;
+
+  return normalizeArabic(item?.type_ar || '') === wanted;
+}
+
+function baseItemsForRoot(rootDir, rootId) {
+  const resolvedRoot = cleanRootId(rootId);
+
+  return loadMenu(rootDir)
+    .filter(isMenuItemVisible)
+    .filter(item => normalizeRootValue(item) === resolvedRoot);
+}
+
+function sortItemsForDisplay(items = []) {
+  return [...items].sort((a, b) => {
+    const aSection = safeString(a.section_ar);
+    const bSection = safeString(b.section_ar);
+    const sectionCompare = aSection.localeCompare(bSection, 'ar');
+    if (sectionCompare !== 0) return sectionCompare;
+
+    const aCategory = safeString(a.category_ar);
+    const bCategory = safeString(b.category_ar);
+    const categoryCompare = aCategory.localeCompare(bCategory, 'ar');
+    if (categoryCompare !== 0) return categoryCompare;
+
+    return safeString(a.display_name_ar || a.item_name_ar).localeCompare(
+      safeString(b.display_name_ar || b.item_name_ar),
+      'ar'
+    );
+  });
+}
+
+export function resolveRootId(rootId = '') {
+  return cleanRootId(rootId);
+}
+
+export function getRootDefinitions() {
+  return ROOT_DEFINITIONS;
+}
+
+export function getMenuData(rootDir) {
+  return loadMenu(rootDir);
+}
+
+export function getMetaCatalog(rootDir) {
+  return safeArray(readJsonFile(path.join(rootDir, 'data', 'meta_catalog.json'), []));
+}
+
+export function getMenuSummary(rootDir) {
+  return readJsonFile(path.join(rootDir, 'data', 'menu.summary.json'), {});
+}
+
+export function getSections(rootDir) {
+  const items = loadMenu(rootDir).filter(isMenuItemVisible);
+  const map = new Map();
+
+  for (const item of items) {
+    const sectionName = safeString(item.section_ar, 'غير مصنف');
+    if (!map.has(sectionName)) map.set(sectionName, []);
+    map.get(sectionName).push(item);
+  }
+
+  return [...map.entries()].map(([section_ar, sectionItems]) => ({
+    section_ar,
+    count: sectionItems.length,
+    slug: slugify(section_ar),
+    items: sortItemsForDisplay(sectionItems)
+  }));
+}
+
+export function getSectionBySlug(rootDir, sectionSlug) {
+  return getSections(rootDir).find(section => section.slug === slugify(sectionSlug)) || null;
+}
+
+export function getItemsBySection(rootDir, sectionName) {
+  const wanted = normalizeArabic(sectionName);
+  return sortItemsForDisplay(
+    loadMenu(rootDir).filter(item => isMenuItemVisible(item) && normalizeArabic(item.section_ar || '') === wanted)
+  );
+}
+
+export function getMenuItemById(rootDir, itemId) {
+  const wanted = safeString(itemId);
+  if (!wanted) return null;
+
+  const normalizedWanted = normalizeArabic(wanted);
+
+  return loadMenu(rootDir).find(item => {
+    const values = [
+      item.record_id,
+      item.id,
+      item.sku,
+      item.display_name_ar,
+      item.item_name_ar
+    ].map(value => safeString(value));
+
+    return values.some(value => value === wanted || normalizeArabic(value) === normalizedWanted);
+  }) || null;
+}
+
+export function searchMenu(rootDir, q) {
+  const query = normalizeArabic(q);
+  const items = loadMenu(rootDir).filter(isMenuItemVisible);
+
+  if (!query) return sortItemsForDisplay(items).slice(0, 20);
+
+  return sortItemsForDisplay(
+    items.filter(item => {
+      const haystack = normalizeArabic([
+        item.record_id,
+        item.sku,
+        item.section_ar,
+        item.item_name_ar,
+        item.display_name_ar,
+        item.category_ar,
+        item.type_ar,
+        item.unit_ar,
+        item.notes_ar,
+        item.status
+      ].filter(Boolean).join(' '));
+
+      return haystack.includes(query);
+    })
+  ).slice(0, 50);
 }
 
 export function getItemsForRoot(rootDir, filters = {}) {
@@ -251,24 +331,22 @@ export function getItemsForRoot(rootDir, filters = {}) {
     ? { rootId: filters }
     : { ...(filters || {}) };
 
-  const rootId = resolveRootId(filterObject.rootId);
+  const rootId = cleanRootId(filterObject.rootId);
   let items = baseItemsForRoot(rootDir, rootId);
 
   if (filterObject.categoryFilter) {
-    const wantedCategory = normalizeArabic(filterObject.categoryFilter);
-    items = items.filter(item => normalizeArabic(item.category_ar) === wantedCategory);
+    items = items.filter(item => categoryMatches(item, filterObject.categoryFilter));
   }
 
   if (filterObject.meatType) {
-    const wantedType = normalizeArabic(mapTypeFilter(filterObject.meatType));
-    items = items.filter(item => normalizeArabic(item.type_ar) === wantedType);
+    items = items.filter(item => typeMatches(item, filterObject.meatType));
   }
 
   if (filterObject.statusFilter) {
     items = items.filter(item => statusMatches(item, filterObject.statusFilter));
   }
 
-  return items;
+  return sortItemsForDisplay(items);
 }
 
 export function getBotRoots(rootDir) {
@@ -281,12 +359,12 @@ export function getBotRoots(rootDir) {
 }
 
 export function getRootById(rootId) {
-  const resolved = resolveRootId(rootId);
+  const resolved = cleanRootId(rootId);
   return ROOT_DEFINITIONS.find(root => root.id === resolved) || null;
 }
 
 export function getRootCategoryOptions(rootDir, rootId, filters = {}) {
-  const resolved = resolveRootId(rootId);
+  const resolved = cleanRootId(rootId);
   const items = getItemsForRoot(rootDir, {
     rootId: resolved,
     statusFilter: filters.statusFilter,
@@ -294,8 +372,8 @@ export function getRootCategoryOptions(rootDir, rootId, filters = {}) {
   });
 
   const values = uniqueBy(
-    items.filter(item => item.category_ar),
-    item => item.category_ar
+    items.filter(item => safeString(item.category_ar)),
+    item => normalizeArabic(item.category_ar)
   ).map(item => item.category_ar);
 
   return sortByReference(values, CATEGORY_ORDER[resolved] || []).map(value => ({
@@ -314,8 +392,8 @@ export function getRootTypeOptions(rootDir, rootId, filters = {}) {
   });
 
   const values = uniqueBy(
-    items.filter(item => item.type_ar),
-    item => item.type_ar
+    items.filter(item => safeString(item.type_ar)),
+    item => normalizeArabic(item.type_ar)
   ).map(item => item.type_ar);
 
   return sortByReference(values, TYPE_ORDER).map(value => ({
@@ -328,21 +406,22 @@ export function getRootTypeOptions(rootDir, rootId, filters = {}) {
 
 export function getRootStatusOptions(rootDir, rootId) {
   const items = baseItemsForRoot(rootDir, rootId);
-  const ordered = uniqueBy(
-    items.map(item => item.status).filter(Boolean),
-    value => value
+
+  const statuses = uniqueBy(
+    items.map(item => safeString(item.status)).filter(Boolean),
+    value => normalizeArabic(value)
   );
 
-  return ordered.map(status => ({
+  return statuses.map(status => ({
     value: status,
     label: STATUS_LABELS[status] || status,
     slug: slugify(status),
-    count: items.filter(item => item.status === status).length
+    count: items.filter(item => normalizeArabic(item.status || '') === normalizeArabic(status)).length
   }));
 }
 
 export function getDisplayUnit(item) {
-  const unit = String(item?.unit_ar || '').trim();
+  const unit = safeString(item?.unit_ar);
   if (!unit) return 'وحدة';
   if (/دجاج/.test(unit)) return 'دجاجة';
   if (/كيلو/.test(unit)) return 'كيلو';
@@ -360,13 +439,13 @@ export function getDisplayUnit(item) {
 export function getItemExtras(rootDir, item) {
   if (!item) return [];
 
-  const items = getMenuData(rootDir);
-  const title = `${item.display_name_ar || ''} ${item.item_name_ar || ''}`;
+  const items = loadMenu(rootDir);
+  const title = `${safeString(item.display_name_ar)} ${safeString(item.item_name_ar)}`;
   const extras = [];
 
   if (/مسخن/.test(title)) {
     const bread = items.find(candidate =>
-      /رغيف مسخن إضافي|رغيف مسخن اضافي/.test(candidate.display_name_ar || candidate.item_name_ar || '')
+      /رغيف مسخن إضافي|رغيف مسخن اضافي/.test(`${safeString(candidate.display_name_ar)} ${safeString(candidate.item_name_ar)}`)
     );
 
     if (bread) {
@@ -380,7 +459,7 @@ export function getItemExtras(rootDir, item) {
 
   if (/مفتول/.test(title)) {
     const vegetables = items.find(candidate =>
-      /إضافة خضروات للمفتول|اضافه خضروات للمفتول/.test(candidate.display_name_ar || candidate.item_name_ar || '')
+      /إضافة خضروات للمفتول|اضافه خضروات للمفتول/.test(`${safeString(candidate.display_name_ar)} ${safeString(candidate.item_name_ar)}`)
     );
 
     if (vegetables) {
