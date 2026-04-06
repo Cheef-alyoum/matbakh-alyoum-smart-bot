@@ -248,6 +248,38 @@ function labelFromStatus(status) {
   }[status] || 'قيد المتابعة';
 }
 
+function isSameStatus(order, targetStatus) {
+  return String(order?.status || '').trim() === String(targetStatus || '').trim();
+}
+
+function isTerminalOrderStatus(status) {
+  return ['delivered', 'rejected', 'customer_exit', 'cancelled'].includes(String(status || '').trim());
+}
+
+function duplicateStatusMessage(orderId, status) {
+  if (status === 'approved') return `الطلب ${orderId} معتمد مسبقًا.`;
+  if (status === 'awaiting_customer_edit') return `الطلب ${orderId} بانتظار تعديل العميل مسبقًا.`;
+  if (status === 'rejected') return `الطلب ${orderId} مرفوض مسبقًا.`;
+  if (status === 'preparing') return `الطلب ${orderId} قيد التحضير مسبقًا.`;
+  if (status === 'ready') return `الطلب ${orderId} جاهز مسبقًا.`;
+  if (status === 'out_for_delivery') return `الطلب ${orderId} قيد التوصيل مسبقًا.`;
+  if (status === 'delivered') return `الطلب ${orderId} تم تسليمه مسبقًا.`;
+  return `الطلب ${orderId} في هذه الحالة مسبقًا.`;
+}
+
+function blockedTransitionMessage(orderId, currentStatus) {
+  if (currentStatus === 'delivered') {
+    return `الطلب ${orderId} تم تسليمه بالفعل، ولا يمكن تعديل حالته من هذا المسار.`;
+  }
+  if (currentStatus === 'rejected') {
+    return `الطلب ${orderId} مرفوض بالفعل، ولا يمكن متابعة حالاته التشغيلية.`;
+  }
+  if (currentStatus === 'customer_exit' || currentStatus === 'cancelled') {
+    return `الطلب ${orderId} مغلق، ولا يمكن متابعة حالاته التشغيلية.`;
+  }
+  return `لا يمكن تنفيذ هذا الإجراء على الطلب ${orderId} في حالته الحالية: ${labelFromStatus(currentStatus)}.`;
+}
+
 function mapPrepStatusToCustomer(status, orderId, notes = '') {
   if (status === 'approved') {
     return `تم اعتماد طلبك ✅\nرقم الطلب: ${orderId}\nطريقة الدفع: الدفع عند الاستلام - كاش\nسنرسل لك التحديثات هنا حتى التسليم.`;
@@ -1532,47 +1564,139 @@ async function handleAdminAction(rootDir, from, selection) {
   const [action, orderId] = selection.split(':');
   const order = await getOrderById(rootDir, orderId);
 
-  if (!order) return { ok: false, message: 'تعذر العثور على الطلب المطلوب.' };
+  if (!order) {
+    return { ok: false, message: 'تعذر العثور على الطلب المطلوب.' };
+  }
+
+  const currentStatus = String(order.status || '').trim();
 
   if (action === BUTTON_IDS.ADMIN_APPROVE) {
+    if (isSameStatus(order, 'approved')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'approved') };
+    }
+
+    if (['ready', 'out_for_delivery', 'delivered'].includes(currentStatus)) {
+      return {
+        ok: true,
+        message: `الطلب ${orderId} تجاوز مرحلة الاعتماد بالفعل وحالته الحالية: ${labelFromStatus(currentStatus)}.`
+      };
+    }
+
+    if (['rejected', 'customer_exit', 'cancelled'].includes(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'approved', 'تم اعتماد الطلب', {
       approvedByPhone: from,
       approvedAt: nowIso()
     });
+
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('approved', orderId));
     await sendWhatsAppInteractive(rootDir, from, adminOpsButtons(orderId));
+
     return { ok: true, message: 'تم اعتماد الطلب وإشعار العميل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_MODIFY) {
+    if (isSameStatus(order, 'awaiting_customer_edit')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'awaiting_customer_edit') };
+    }
+
+    if (isTerminalOrderStatus(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'awaiting_customer_edit', 'بانتظار تعديل العميل', {
       adminNotes: 'يرجى مراجعة تفاصيل الطلب مع العميل قبل الاعتماد.'
     });
-    await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('awaiting_customer_edit', orderId, 'يرجى مراجعة تفاصيل الطلب مع الموظف أو إعادة إرسال التعديلات.'));
+
+    await sendWhatsAppText(
+      rootDir,
+      order.phone,
+      mapPrepStatusToCustomer(
+        'awaiting_customer_edit',
+        orderId,
+        'يرجى مراجعة تفاصيل الطلب مع الموظف أو إعادة إرسال التعديلات.'
+      )
+    );
+
     return { ok: true, message: 'تم طلب تعديل الطلب من العميل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_REJECT) {
+    if (isSameStatus(order, 'rejected')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'rejected') };
+    }
+
+    if (currentStatus === 'delivered') {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'rejected', 'مرفوض', {
       adminNotes: 'اعتذار منكم، يمكن إعادة ترتيب الطلب من جديد.'
     });
+
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('rejected', orderId));
     return { ok: true, message: 'تم رفض الطلب وإشعار العميل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_PREPARING) {
+    if (isSameStatus(order, 'preparing')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'preparing') };
+    }
+
+    if (['ready', 'out_for_delivery', 'delivered'].includes(currentStatus)) {
+      return {
+        ok: true,
+        message: `لا يمكن إعادة الطلب ${orderId} إلى التحضير لأن حالته الحالية: ${labelFromStatus(currentStatus)}.`
+      };
+    }
+
+    if (['rejected', 'customer_exit', 'cancelled'].includes(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'preparing', 'قيد التحضير');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('preparing', orderId));
+
     return { ok: true, message: 'تم تحديث الطلب إلى قيد التحضير.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_READY) {
+    if (isSameStatus(order, 'ready')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'ready') };
+    }
+
+    if (['out_for_delivery', 'delivered'].includes(currentStatus)) {
+      return {
+        ok: true,
+        message: `لا يمكن إعادة الطلب ${orderId} إلى جاهز لأن حالته الحالية: ${labelFromStatus(currentStatus)}.`
+      };
+    }
+
+    if (['rejected', 'customer_exit', 'cancelled'].includes(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'ready', 'جاهز');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('ready', orderId));
+
     return { ok: true, message: 'تم تحديث الطلب إلى جاهز.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_OUT) {
+    if (isSameStatus(order, 'out_for_delivery')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'out_for_delivery') };
+    }
+
+    if (currentStatus === 'delivered') {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
+    if (['rejected', 'customer_exit', 'cancelled'].includes(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'out_for_delivery', 'قيد التوصيل');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('out_for_delivery', orderId));
     await sendWhatsAppInteractive(rootDir, from, {
@@ -1580,12 +1704,22 @@ async function handleAdminAction(rootDir, from, selection) {
       body: `تأكيد إنهاء الطلب ${orderId}`,
       buttons: [{ id: `${BUTTON_IDS.ADMIN_DELIVERED}:${orderId}`, title: 'تم التسليم' }]
     });
+
     return { ok: true, message: 'تم تحديث الطلب إلى قيد التوصيل.' };
   }
 
   if (action === BUTTON_IDS.ADMIN_DELIVERED) {
+    if (isSameStatus(order, 'delivered')) {
+      return { ok: true, message: duplicateStatusMessage(orderId, 'delivered') };
+    }
+
+    if (['rejected', 'customer_exit', 'cancelled'].includes(currentStatus)) {
+      return { ok: true, message: blockedTransitionMessage(orderId, currentStatus) };
+    }
+
     await updateOrderStatus(rootDir, orderId, 'delivered', 'تم التسليم');
     await sendWhatsAppText(rootDir, order.phone, mapPrepStatusToCustomer('delivered', orderId));
+
     return { ok: true, message: 'تم إغلاق الطلب على أنه تم التسليم.' };
   }
 
