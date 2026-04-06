@@ -1,110 +1,167 @@
-const baseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const schema = process.env.SUPABASE_SCHEMA || 'public';
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const SUPABASE_SCHEMA = String(process.env.SUPABASE_SCHEMA || 'public').trim() || 'public';
 
-export function isSupabaseEnabled() {
-  return Boolean(baseUrl && serviceRoleKey);
+function cleanValue(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized || '';
 }
 
-function buildHeaders(extra = {}) {
-  return {
-    apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    Prefer: 'return=representation',
-    ...extra
-  };
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function buildUrl(table, query = '') {
-  const suffix = query ? `?${query}` : '';
-  return `${baseUrl}/rest/v1/${table}${suffix}`;
-}
-
-async function handleResponse(response) {
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    const error = new Error(data?.message || data?.error_description || data?.hint || 'Supabase request failed');
-    error.status = response.status;
-    error.payload = data;
-    throw error;
+function pruneUndefined(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => pruneUndefined(item)).filter(item => item !== undefined);
   }
-  return data;
-}
 
-export async function upsertRow(table, payload, options = {}) {
-  const params = new URLSearchParams();
-  if (options.onConflict) params.set('on_conflict', options.onConflict);
-  const headers = buildHeaders({ Prefer: 'resolution=merge-duplicates,return=representation' });
-  const response = await fetch(buildUrl(table, params.toString()), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(Array.isArray(payload) ? payload : [payload])
-  });
-  const data = await handleResponse(response);
-  return Array.isArray(data) ? data[0] : data;
-}
-
-export async function insertRows(table, payload, options = {}) {
-  const headers = buildHeaders({ Prefer: options.returnMinimal ? 'return=minimal' : 'return=representation' });
-  const response = await fetch(buildUrl(table), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(Array.isArray(payload) ? payload : [payload])
-  });
-  return handleResponse(response);
-}
-
-export async function selectRows(table, filters = {}, options = {}) {
-  const params = new URLSearchParams();
-  params.set('select', options.select || '*');
-  for (const [key, value] of Object.entries(filters)) {
-    if (value === undefined || value === null || value === '') continue;
-    if (Array.isArray(value)) {
-      params.set(key, `in.(${value.join(',')})`);
-    } else {
-      params.set(key, `eq.${value}`);
-    }
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([key, item]) => [key, pruneUndefined(item)])
+        .filter(([, item]) => item !== undefined)
+    );
   }
+
+  return value === undefined ? undefined : value;
+}
+
+function encodeFilterValue(value) {
+  if (value === null) return 'is.null';
+  if (typeof value === 'number' || typeof value === 'boolean') return `eq.${value}`;
+  return `eq.${String(value)}`;
+}
+
+function buildQueryString(filters = {}, options = {}) {
+  const params = new URLSearchParams();
+
+  const select = cleanValue(options.select || '*');
+  if (select) {
+    params.set('select', select);
+  }
+
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (value === undefined) continue;
+    params.set(key, encodeFilterValue(value));
+  }
+
   if (options.orderBy) {
     params.set('order', `${options.orderBy}.${options.ascending === false ? 'desc' : 'asc'}`);
   }
-  if (options.limit) params.set('limit', String(options.limit));
 
-  const response = await fetch(buildUrl(table, params.toString()), {
-    method: 'GET',
-    headers: buildHeaders()
-  });
-  return handleResponse(response);
-}
-
-export async function patchRows(table, filters = {}, payload = {}) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value === undefined || value === null || value === '') continue;
-    params.set(key, `eq.${value}`);
+  if (options.limit) {
+    params.set('limit', String(options.limit));
   }
-  const response = await fetch(buildUrl(table, params.toString()), {
-    method: 'PATCH',
-    headers: buildHeaders({ Prefer: 'return=representation' }),
-    body: JSON.stringify(payload)
-  });
-  const data = await handleResponse(response);
-  return Array.isArray(data) ? data[0] : data;
+
+  return params.toString();
 }
 
+function buildUrl(table, filters = {}, options = {}) {
+  if (!SUPABASE_URL) {
+    throw new Error('SUPABASE_URL_NOT_CONFIGURED');
+  }
+
+  const query = buildQueryString(filters, options);
+  const base = `${SUPABASE_URL}/rest/v1/${table}`;
+  return query ? `${base}?${query}` : base;
+}
+
+function buildHeaders(prefer = '') {
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY_NOT_CONFIGURED');
+  }
+
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'Accept-Profile': SUPABASE_SCHEMA,
+    'Content-Profile': SUPABASE_SCHEMA
+  };
+
+  if (prefer) {
+    headers.Prefer = prefer;
+  }
+
+  return headers;
+}
+
+async function parseResponse(response) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+
+  if (contentType.includes('application/json')) {
+    return response.json().catch(() => ({}));
+  }
+
+  const text = await response.text().catch(() => '');
+  return text || {};
+}
+
+async function request(method, table, { filters = {}, body, options = {}, prefer = '' } = {}) {
+  const url = buildUrl(table, filters, options);
+  const headers = buildHeaders(prefer);
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(pruneUndefined(body))
+  });
+
+  const payload = await parseResponse(response);
+
+  if (!response.ok) {
+    const error = new Error(`SUPABASE_${method}_${table}_FAILED`);
+    error.status = response.status;
+    error.payload = payload;
+    error.url = url;
+    throw error;
+  }
+
+  return payload;
+}
+
+export function isSupabaseEnabled() {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export async function selectRows(table, filters = {}, options = {}) {
+  return request('GET', table, { filters, options });
+}
+
+export async function insertRows(table, rows, { returnMinimal = false } = {}) {
+  const payload = Array.isArray(rows) ? rows : [rows];
+  const prefer = returnMinimal ? 'return=minimal' : 'return=representation';
+  return request('POST', table, { body: payload, prefer });
+}
+
+export async function upsertRow(table, row, { onConflict = '' } = {}) {
+  const options = onConflict ? { on_conflict: onConflict } : {};
+  const prefer = 'resolution=merge-duplicates,return=representation';
+  return request('POST', table, { body: row, options, prefer });
+}
+
+export async function patchRows(table, filters = {}, patch = {}) {
+  return request('PATCH', table, {
+    filters,
+    body: patch,
+    prefer: 'return=representation'
+  });
+}
 
 export async function deleteRows(table, filters = {}) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value === undefined || value === null || value === '') continue;
-    params.set(key, `eq.${value}`);
-  }
-  const response = await fetch(buildUrl(table, params.toString()), {
-    method: 'DELETE',
-    headers: buildHeaders({ Prefer: 'return=representation' })
+  return request('DELETE', table, {
+    filters,
+    prefer: 'return=representation'
   });
-  return handleResponse(response);
 }
+
+export default {
+  isSupabaseEnabled,
+  selectRows,
+  insertRows,
+  upsertRow,
+  patchRows,
+  deleteRows
+};
