@@ -32,6 +32,22 @@ const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, 'public');
 const appConfig = loadAppConfig(path.join(rootDir, 'config.app.json'));
+const adminApiToken = String(process.env.ADMIN_API_TOKEN || '').trim();
+
+const allowedOrderStatuses =
+  Array.isArray(appConfig?.operations?.orderStatuses) && appConfig.operations.orderStatuses.length
+    ? appConfig.operations.orderStatuses
+    : [
+        'awaiting_admin_review',
+        'awaiting_customer_edit',
+        'approved',
+        'preparing',
+        'ready',
+        'out_for_delivery',
+        'delivered',
+        'rejected',
+        'customer_exit'
+      ];
 
 function sendSafe404(res) {
   const notFoundPath = path.join(publicDir, '404.html');
@@ -103,27 +119,175 @@ function sendSafe404(res) {
   <div class="box">
     <h1>404</h1>
     <p>عذرًا، الصفحة التي تبحث عنها غير موجودة.</p>
-    <p>يمكنك العودة إلى الصفحة الرئيسية.</p>
-    <a href="/">العودة للرئيسية</a>
+    <p>يمكنك العودة إلى الموقع أو التواصل عبر واتساب.</p>
+    <a href="${appConfig?.channels?.website || '/'}">الانتقال إلى الموقع</a>
   </div>
 </body>
 </html>
   `);
 }
 
+function getSafeHost(req) {
+  return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || `0.0.0.0:${process.env.PORT || 10000}`;
+}
+
+function getBaseSiteUrl() {
+  return process.env.WEBSITE_URL || appConfig?.channels?.website || appConfig?.site?.baseUrl || '';
+}
+
+function buildExternalUrl(targetPath = '/') {
+  const baseUrl = getBaseSiteUrl();
+  if (!baseUrl) return '';
+
+  try {
+    return new URL(targetPath, baseUrl).toString();
+  } catch {
+    return `${baseUrl.replace(/\/$/, '')}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`;
+  }
+}
+
+function redirect(res, targetUrl, statusCode = 302) {
+  res.writeHead(statusCode, { Location: targetUrl });
+  res.end();
+}
+
+function getPublicChannels() {
+  return {
+    website: appConfig?.channels?.website || getBaseSiteUrl() || '',
+    menu: appConfig?.channels?.menu || buildExternalUrl('/menu.html'),
+    order: appConfig?.channels?.order || buildExternalUrl('/order.html'),
+    tracking: appConfig?.channels?.tracking || buildExternalUrl('/track.html'),
+    whatsappClick: appConfig?.channels?.whatsappClick || '',
+    facebook: appConfig?.channels?.facebook || '',
+    instagram: appConfig?.channels?.instagram || '',
+    snapchat: appConfig?.channels?.snapchat || '',
+    youtubeHandle: appConfig?.channels?.youtubeHandle || '',
+    email: appConfig?.channels?.email || appConfig?.site?.email || ''
+  };
+}
+
+function buildEventSourceUrl(preferredUrl, fallbackPath) {
+  if (preferredUrl) return preferredUrl;
+  return buildExternalUrl(fallbackPath);
+}
+
+function getAdminAuthState(req) {
+  if (!adminApiToken) {
+    return { ok: true, enforced: false };
+  }
+
+  const authorization = String(req?.headers?.authorization || '');
+  const headerToken = String(req?.headers?.['x-admin-token'] || '').trim();
+  const bearerToken = authorization.replace(/^Bearer\s+/i, '').trim();
+  const receivedToken = headerToken || bearerToken;
+
+  if (receivedToken && receivedToken === adminApiToken) {
+    return { ok: true, enforced: true };
+  }
+
+  return { ok: false, enforced: true };
+}
+
+function normalizeOrderItems(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .filter(item => item && typeof item === 'object')
+    .map(item => ({ ...item }))
+    .filter(item => Object.keys(item).length > 0);
+}
+
+function calculateOrderSubtotal(items) {
+  return items.reduce((sum, item) => {
+    const lineTotal = Number(item.lineTotalJod ?? item.line_total_jod ?? item.total ?? item.price ?? 0);
+    return sum + (Number.isFinite(lineTotal) ? lineTotal : 0);
+  }, 0);
+}
+
+function validateLeadPayload(body) {
+  const phone = normalizePhone(body?.phone || '');
+  const name = String(body?.name || '').trim();
+
+  if (!phone && !name) {
+    return {
+      ok: false,
+      message: 'يرجى إرسال رقم الهاتف أو الاسم على الأقل لتسجيل طلب التواصل.'
+    };
+  }
+
+  return { ok: true, phone, name };
+}
+
+function validateOrderPayload(body) {
+  const phone = normalizePhone(body?.phone || '');
+  const items = normalizeOrderItems(body?.items);
+  const deliveryType = body?.deliveryType === 'pickup' ? 'pickup' : 'delivery';
+  const paymentMethod = String(body?.paymentMethod || 'cash').trim() || 'cash';
+
+  if (!phone) {
+    return { ok: false, message: 'رقم الهاتف مطلوب لإرسال الطلب.' };
+  }
+
+  if (!items.length) {
+    return { ok: false, message: 'يجب أن يحتوي الطلب على صنف واحد على الأقل.' };
+  }
+
+  if (deliveryType === 'delivery' && !String(body?.address || '').trim() && !String(body?.deliveryZoneId || '').trim()) {
+    return {
+      ok: false,
+      message: 'يرجى إدخال العنوان أو اختيار منطقة التوصيل قبل إرسال الطلب.'
+    };
+  }
+
+  return {
+    ok: true,
+    phone,
+    items,
+    deliveryType,
+    paymentMethod
+  };
+}
+
+function validateStatusPayload(body) {
+  const orderId = String(body?.orderId || '').trim();
+  const status = String(body?.status || '').trim();
+
+  if (!orderId) {
+    return { ok: false, message: 'رقم الطلب مطلوب.' };
+  }
+
+  if (!status) {
+    return { ok: false, message: 'حالة الطلب مطلوبة.' };
+  }
+
+  if (!allowedOrderStatuses.includes(status)) {
+    return {
+      ok: false,
+      message: 'حالة الطلب غير معتمدة.',
+      allowedStatuses: allowedOrderStatuses
+    };
+  }
+
+  return { ok: true, orderId, status };
+}
+
 const server = http.createServer(async (req, res) => {
   try {
-    const safeHost = req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || `0.0.0.0:${process.env.PORT || 10000}`;
+    const safeHost = getSafeHost(req);
     const url = new URL(req?.url || '/', `http://${safeHost}`);
     const pathname = url.pathname;
     const method = req.method || 'GET';
+    const channels = getPublicChannels();
 
     if (pathname === '/api/webhooks/whatsapp') {
-      console.info('HTTP_WEBHOOK_REQUEST', JSON.stringify({
-        method,
-        pathname,
-        time: new Date().toISOString()
-      }));
+      console.info(
+        'HTTP_WEBHOOK_REQUEST',
+        JSON.stringify({
+          method,
+          pathname,
+          time: new Date().toISOString()
+        })
+      );
     }
 
     if (pathname === '/health' || pathname === '/healthz') {
@@ -138,15 +302,50 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/' && method === 'GET') {
-      return text(res, 200, 'Matbakh Al Youm Smart Bot is running');
+      return json(res, 200, {
+        ok: true,
+        service: 'matbakh-alyoum-smart-bot',
+        mode: 'bot_backend',
+        websiteSeparated: true,
+        website: channels.website,
+        whatsapp: channels.whatsappClick,
+        health: '/health',
+        status: '/api/status'
+      });
+    }
+
+    if (method === 'GET' && ['/menu.html', '/order.html', '/track.html', '/about.html', '/contact.html', '/privacy.html'].includes(pathname)) {
+      const mappedTarget =
+        pathname === '/menu.html'
+          ? channels.menu
+          : pathname === '/order.html'
+            ? channels.order
+            : pathname === '/track.html'
+              ? channels.tracking
+              : buildExternalUrl(pathname);
+
+      if (mappedTarget) {
+        return redirect(res, mappedTarget, 302);
+      }
     }
 
     if (pathname === '/api/status') {
       return json(res, 200, {
         ok: true,
-        ...appConfig,
+        app: appConfig.app,
+        business: appConfig.business,
+        timezone: appConfig.timezone,
+        orderWindowOpen: isWithinOrderWindow(appConfig),
+        features: appConfig.features,
+        channels,
+        security: {
+          adminApiTokenConfigured: Boolean(adminApiToken),
+          orderApprovalRequired: Boolean(appConfig?.operations?.adminControl?.approvalRequired)
+        },
         api: {
           status: '/api/status',
+          siteSeo: '/api/site/seo',
+          siteHomepage: '/api/site/homepage',
           menu: '/api/menu',
           sections: '/api/menu/sections',
           search: '/api/menu/search?q=',
@@ -155,17 +354,22 @@ const server = http.createServer(async (req, res) => {
           lead: '/api/leads',
           deliveryZones: '/api/delivery/zones',
           whatsappWebhook: '/api/webhooks/whatsapp',
+          metaEvent: '/api/meta/event',
           health: '/health'
         }
       });
     }
 
-    if (pathname === '/api/site/seo') {
+    if (pathname === '/api/site/seo' && method === 'GET') {
       return json(res, 200, buildSeoConfig(appConfig));
     }
 
-    if (pathname === '/api/site/homepage') {
+    if (pathname === '/api/site/homepage' && method === 'GET') {
       return json(res, 200, buildHomepageData(appConfig));
+    }
+
+    if (pathname === '/api/channels' && method === 'GET') {
+      return json(res, 200, { ok: true, channels });
     }
 
     if (pathname === '/api/menu' && method === 'GET') {
@@ -201,12 +405,17 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/leads' && method === 'POST') {
       const body = await parseBody(req);
+      const leadValidation = validateLeadPayload(body);
+
+      if (!leadValidation.ok) {
+        return json(res, 400, leadValidation);
+      }
 
       const lead = await createLead(rootDir, {
         id: randomUUID(),
         source: body.source || 'website',
-        name: body.name || '',
-        phone: normalizePhone(body.phone || ''),
+        name: leadValidation.name,
+        phone: leadValidation.phone,
         notes: body.notes || '',
         preferredChannel: body.preferredChannel || 'whatsapp',
         createdAt: new Date().toISOString()
@@ -215,7 +424,7 @@ const server = http.createServer(async (req, res) => {
       await sendMetaEvent(appConfig, {
         event_name: 'Lead',
         action_source: 'website',
-        event_source_url: `${appConfig.site.baseUrl}/contact.html`,
+        event_source_url: buildEventSourceUrl(channels.website, '/'),
         user_data: {
           phone: lead.phone
         },
@@ -234,19 +443,22 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/orders' && method === 'POST') {
       const body = await parseBody(req);
-      const phone = normalizePhone(body.phone || '');
-      const items = Array.isArray(body.items) ? body.items : [];
+      const orderValidation = validateOrderPayload(body);
+
+      if (!orderValidation.ok) {
+        return json(res, 400, orderValidation);
+      }
+
+      const phone = orderValidation.phone;
+      const items = orderValidation.items;
+      const deliveryType = orderValidation.deliveryType;
+      const paymentMethod = orderValidation.paymentMethod;
       const notes = body.notes || '';
       const deliverySlot = body.deliverySlot || '';
-      const deliveryType = body.deliveryType || 'delivery';
       const address = body.address || '';
-      const paymentMethod = body.paymentMethod || 'cash';
       const now = new Date().toISOString();
       const zone = body.deliveryZoneId ? getDeliveryZoneById(rootDir, body.deliveryZoneId) : null;
-      const subtotal = items.reduce(
-        (sum, item) => sum + Number(item.lineTotalJod || item.line_total_jod || item.total || 0),
-        0
-      );
+      const subtotal = calculateOrderSubtotal(items);
       const deliveryFee =
         deliveryType === 'pickup' ? 0 : Number(zone?.delivery_fee_jod || body.deliveryFeeJod || 0);
 
@@ -260,9 +472,7 @@ const server = http.createServer(async (req, res) => {
         deliveryDay: body.deliveryDay || '',
         deliverySlot,
         deliveryType,
-        deliverySector: zone
-          ? `${zone.zone_type} — ${zone.sector_or_governorate}`
-          : body.deliverySector || '',
+        deliverySector: zone ? `${zone.zone_type} — ${zone.sector_or_governorate}` : body.deliverySector || '',
         deliveryZoneId: zone?.zone_id || body.deliveryZoneId || null,
         deliveryZoneName: zone?.zone_name_ar || body.deliveryZoneName || '',
         paymentMethod,
@@ -278,14 +488,15 @@ const server = http.createServer(async (req, res) => {
       await sendMetaEvent(appConfig, {
         event_name: 'InitiateCheckout',
         action_source: 'website',
-        event_source_url: `${appConfig.site.baseUrl}/order.html`,
+        event_source_url: buildEventSourceUrl(channels.order, '/order.html'),
         user_data: {
           phone
         },
         custom_data: {
           currency: 'JOD',
           content_name: 'order_submitted',
-          num_items: items.length
+          num_items: items.length,
+          value: subtotal + deliveryFee
         }
       });
 
@@ -298,7 +509,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/orders/track' && method === 'GET') {
-      const orderId = url.searchParams.get('orderId');
+      const orderId = String(url.searchParams.get('orderId') || '').trim();
       const phone = normalizePhone(url.searchParams.get('phone') || '');
 
       if (orderId) {
@@ -306,9 +517,7 @@ const server = http.createServer(async (req, res) => {
         return json(
           res,
           order ? 200 : 404,
-          order
-            ? { ok: true, order }
-            : { ok: false, message: 'لم يتم العثور على الطلب.' }
+          order ? { ok: true, order } : { ok: false, message: 'لم يتم العثور على الطلب.' }
         );
       }
 
@@ -324,25 +533,47 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/orders/status' && method === 'POST') {
+      const authState = getAdminAuthState(req);
+
+      if (!authState.ok) {
+        return json(res, 401, {
+          ok: false,
+          message: 'غير مصرح لك بتحديث حالة الطلب.'
+        });
+      }
+
       const body = await parseBody(req);
+      const statusValidation = validateStatusPayload(body);
+
+      if (!statusValidation.ok) {
+        return json(res, 400, statusValidation);
+      }
+
       const updated = await updateOrderStatus(
         rootDir,
-        body.orderId,
-        body.status,
-        body.statusLabelAr || body.status
+        statusValidation.orderId,
+        statusValidation.status,
+        body.statusLabelAr || statusValidation.status,
+        {
+          approvedByPhone: body.approvedByPhone || body.adminPhone || undefined,
+          approvedAt: body.approvedAt || undefined,
+          adminNotes: body.adminNotes || undefined
+        }
       );
 
       if (!updated) {
         return json(res, 404, { ok: false, message: 'الطلب غير موجود.' });
       }
 
-      if (['approved', 'delivered'].includes(body.status)) {
+      if (['approved', 'delivered'].includes(statusValidation.status)) {
         await sendMetaEvent(appConfig, {
-          event_name: body.status === 'approved' ? 'QualifiedLead' : 'Purchase',
+          event_name: statusValidation.status === 'approved' ? 'QualifiedLead' : 'Purchase',
           action_source: 'system_generated',
           custom_data: {
             order_id: updated.id,
-            status: body.status
+            status: statusValidation.status,
+            value: Number(updated.totalJod || updated.total_jod || 0) || undefined,
+            currency: 'JOD'
           },
           user_data: {
             phone: updated.phone
@@ -350,7 +581,11 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      return json(res, 200, { ok: true, order: updated });
+      return json(res, 200, {
+        ok: true,
+        order: updated,
+        adminAuthEnforced: authState.enforced
+      });
     }
 
     if (pathname === '/api/webhooks/whatsapp' && method === 'GET') {
@@ -362,9 +597,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/meta/event' && method === 'POST') {
+      const authState = getAdminAuthState(req);
+
+      if (!authState.ok) {
+        return json(res, 401, {
+          ok: false,
+          message: 'غير مصرح لك بإرسال حدث يدوي إلى Meta.'
+        });
+      }
+
       const body = await parseBody(req);
       const result = await sendMetaEvent(appConfig, body);
-      return json(res, 200, { ok: true, result });
+      return json(res, 200, {
+        ok: true,
+        result,
+        adminAuthEnforced: authState.enforced
+      });
     }
 
     let filePath = path.join(publicDir, pathname === '/' ? 'index.html' : pathname);
@@ -407,4 +655,6 @@ const host = '0.0.0.0';
 server.listen(port, host, () => {
   console.log(`${new Date().toISOString()} - Matbakh Al Youm Smart Bot running on http://${host}:${port}`);
   console.log(`${new Date().toISOString()} - Base URL: ${process.env.BASE_URL || appConfig?.site?.baseUrl || 'not-set'}`);
+  console.log(`${new Date().toISOString()} - Website URL: ${getBaseSiteUrl() || 'not-set'}`);
+  console.log(`${new Date().toISOString()} - Admin API token enforced: ${adminApiToken ? 'yes' : 'no'}`);
 });
