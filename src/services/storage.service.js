@@ -46,6 +46,11 @@ function normalizeStoredPhone(value) {
   return normalizePhone(value).replace(/^\+/, '');
 }
 
+function firstRow(result) {
+  if (Array.isArray(result)) return result[0] || null;
+  return result || null;
+}
+
 function consentFlags(consentStatus = 'service_only') {
   return {
     consent_status: consentStatus,
@@ -199,7 +204,8 @@ async function upsertCustomerInternal(rootDir, payload) {
   };
 
   if (isSupabaseEnabled()) {
-    return upsertRow('customers', row, { onConflict: 'phone' });
+    const result = await upsertRow('customers', row, { onConflict: 'phone' });
+    return firstRow(result) || row;
   }
 
   const customers = readCollection(rootDir, 'customers');
@@ -229,7 +235,7 @@ export async function getCustomerByPhone(rootDir, phone) {
 
   if (isSupabaseEnabled()) {
     const rows = await selectRows('customers', { phone: normalizedPhone }, { limit: 1 });
-    return rows[0] || null;
+    return firstRow(rows);
   }
 
   const customers = readCollection(rootDir, 'customers');
@@ -246,7 +252,7 @@ export async function getConversationSession(rootDir, phone) {
 
   if (isSupabaseEnabled()) {
     const rows = await selectRows('conversation_sessions', { phone: normalizedPhone }, { limit: 1 });
-    return rows[0] || null;
+    return firstRow(rows);
   }
 
   const sessions = readCollection(rootDir, 'sessions');
@@ -268,7 +274,8 @@ export async function setConversationSession(rootDir, phone, payload = {}) {
   };
 
   if (isSupabaseEnabled()) {
-    return upsertRow('conversation_sessions', row, { onConflict: 'phone' });
+    const result = await upsertRow('conversation_sessions', row, { onConflict: 'phone' });
+    return firstRow(result) || row;
   }
 
   const sessions = readCollection(rootDir, 'sessions');
@@ -314,13 +321,14 @@ export async function createOrder(rootDir, order) {
       try {
         const orderRow = normalizeOrderRow(currentOrder, customer?.id || null);
         const insertedOrder = await insertRows('orders', orderRow);
+        const orderRecord = firstRow(insertedOrder) || orderRow;
         const items = normalizeOrderItems(currentOrder);
 
         if (items.length) {
           await insertRows('order_items', items, { returnMinimal: true });
         }
 
-        return Array.isArray(insertedOrder) ? insertedOrder[0] : insertedOrder;
+        return orderRecord;
       } catch (error) {
         lastError = error;
 
@@ -366,7 +374,7 @@ export async function replaceOrder(rootDir, orderId, order) {
   const normalizedPhone = normalizeStoredPhone(order.phone);
 
   if (isSupabaseEnabled()) {
-    const updated = await patchRows(
+    const updatedRows = await patchRows(
       'orders',
       { id: orderId },
       normalizeOrderRow({ ...order, phone: normalizedPhone }, order.customerId || null)
@@ -379,7 +387,7 @@ export async function replaceOrder(rootDir, orderId, order) {
       await insertRows('order_items', items, { returnMinimal: true });
     }
 
-    return updated;
+    return firstRow(updatedRows) || null;
   }
 
   const orders = readCollection(rootDir, 'orders');
@@ -403,7 +411,7 @@ export async function getOrderById(rootDir, orderId) {
 
   if (isSupabaseEnabled()) {
     const rows = await selectRows('orders', { id: orderId }, { limit: 1 });
-    return rows[0] || null;
+    return firstRow(rows);
   }
 
   const orders = readCollection(rootDir, 'orders');
@@ -703,7 +711,7 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr,
   let updated = null;
 
   if (isSupabaseEnabled()) {
-    updated = await patchRows('orders', { id: orderId }, {
+    const updatedRows = await patchRows('orders', { id: orderId }, {
       status,
       status_label_ar: statusLabelAr,
       approved_by_phone: extra.approvedByPhone || undefined,
@@ -711,6 +719,7 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr,
       admin_notes: extra.adminNotes || undefined,
       updated_at: nowIso()
     });
+    updated = firstRow(updatedRows);
   } else {
     const orders = readCollection(rootDir, 'orders');
     const index = orders.findIndex(order => order.id === orderId);
@@ -837,7 +846,7 @@ export async function createLead(rootDir, lead) {
 
   if (isSupabaseEnabled()) {
     const inserted = await insertRows('leads', row);
-    return Array.isArray(inserted) ? inserted[0] : inserted;
+    return firstRow(inserted) || row;
   }
 
   const leads = readCollection(rootDir, 'leads');
@@ -869,7 +878,8 @@ async function saveMessage(rootDir, message, direction = 'inbound') {
 
   if (isSupabaseEnabled()) {
     try {
-      return await upsertRow('messages_log', row, { onConflict: 'id' });
+      const result = await upsertRow('messages_log', row, { onConflict: 'id' });
+      return firstRow(result) || row;
     } catch (error) {
       console.error('MESSAGES_LOG_SUPABASE_ERROR', {
         phone: row.phone,
