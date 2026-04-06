@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { readJsonFile, writeJsonFile } from '../utils/core.js';
+import { readJsonFile, writeJsonFile, normalizePhone } from '../utils/core.js';
 import {
   deleteRows,
   insertRows,
@@ -35,6 +35,15 @@ function writeCollection(rootDir, key, items) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function safeString(value, fallback = '') {
+  const result = value == null ? '' : String(value).trim();
+  return result || fallback;
+}
+
+function normalizeStoredPhone(value) {
+  return normalizePhone(value).replace(/^\+/, '');
 }
 
 function consentFlags(consentStatus = 'service_only') {
@@ -111,12 +120,20 @@ function isDuplicateIdError(error) {
   );
 }
 
+function getWebsiteBaseUrl() {
+  return safeString(process.env.WEBSITE_URL || process.env.BASE_URL, 'https://matbakh-alyoum.site').replace(/\/$/, '');
+}
+
+function getTrackingSourceUrl() {
+  return safeString(process.env.PUBLIC_TRACKING_URL, `${getWebsiteBaseUrl()}/track.html`);
+}
+
 function normalizeOrderRow(order, customerId = null) {
   return {
     id: order.id,
     customer_id: order.customerId || customerId || null,
     customer_name: order.customerName || order.customer_name || null,
-    phone: order.phone,
+    phone: normalizeStoredPhone(order.phone),
     status: order.status,
     status_label_ar: order.statusLabelAr || order.status_label_ar || 'قيد المراجعة',
     delivery_type: order.deliveryType || order.delivery_type || 'delivery',
@@ -141,7 +158,7 @@ function normalizeOrderRow(order, customerId = null) {
 }
 
 function normalizeOrderItems(order) {
-  return (order.items || []).map(item => {
+  return (Array.isArray(order.items) ? order.items : []).map(item => {
     const sourceMenuId = item.id || item.record_id || null;
     const notesParts = [
       item.notes || null,
@@ -161,9 +178,19 @@ function normalizeOrderItems(order) {
   });
 }
 
+function sortByCreatedDesc(items = []) {
+  return [...items].sort((a, b) => {
+    const aDate = new Date(a.updated_at || a.updatedAt || a.created_at || a.createdAt || 0).getTime();
+    const bDate = new Date(b.updated_at || b.updatedAt || b.created_at || b.createdAt || 0).getTime();
+    return bDate - aDate;
+  });
+}
+
 async function upsertCustomerInternal(rootDir, payload) {
+  const normalizedPhone = normalizeStoredPhone(payload.phone);
+
   const row = {
-    phone: payload.phone,
+    phone: normalizedPhone,
     full_name: payload.fullName || payload.full_name || null,
     preferred_language: payload.preferredLanguage || payload.preferred_language || 'ar',
     notes: payload.notes || null,
@@ -176,7 +203,7 @@ async function upsertCustomerInternal(rootDir, payload) {
   }
 
   const customers = readCollection(rootDir, 'customers');
-  const index = customers.findIndex(item => item.phone === row.phone);
+  const index = customers.findIndex(item => normalizeStoredPhone(item.phone) === normalizedPhone);
 
   const record = {
     id: customers[index]?.id || crypto.randomUUID(),
@@ -197,15 +224,16 @@ async function upsertCustomerInternal(rootDir, payload) {
 }
 
 export async function getCustomerByPhone(rootDir, phone) {
-  if (!phone) return null;
+  const normalizedPhone = normalizeStoredPhone(phone);
+  if (!normalizedPhone) return null;
 
   if (isSupabaseEnabled()) {
-    const rows = await selectRows('customers', { phone }, { limit: 1 });
+    const rows = await selectRows('customers', { phone: normalizedPhone }, { limit: 1 });
     return rows[0] || null;
   }
 
   const customers = readCollection(rootDir, 'customers');
-  return customers.find(item => item.phone === phone) || null;
+  return customers.find(item => normalizeStoredPhone(item.phone) === normalizedPhone) || null;
 }
 
 export async function upsertCustomer(rootDir, payload) {
@@ -213,20 +241,23 @@ export async function upsertCustomer(rootDir, payload) {
 }
 
 export async function getConversationSession(rootDir, phone) {
-  if (!phone) return null;
+  const normalizedPhone = normalizeStoredPhone(phone);
+  if (!normalizedPhone) return null;
 
   if (isSupabaseEnabled()) {
-    const rows = await selectRows('conversation_sessions', { phone }, { limit: 1 });
+    const rows = await selectRows('conversation_sessions', { phone: normalizedPhone }, { limit: 1 });
     return rows[0] || null;
   }
 
   const sessions = readCollection(rootDir, 'sessions');
-  return sessions.find(item => item.phone === phone) || null;
+  return sessions.find(item => normalizeStoredPhone(item.phone) === normalizedPhone) || null;
 }
 
 export async function setConversationSession(rootDir, phone, payload = {}) {
+  const normalizedPhone = normalizeStoredPhone(phone);
+
   const row = {
-    phone,
+    phone: normalizedPhone,
     current_state: payload.current_state || payload.currentState || 'idle',
     preferred_language: payload.preferred_language || payload.preferredLanguage || 'ar',
     consent_status: payload.consent_status || payload.consentStatus || 'pending',
@@ -241,10 +272,10 @@ export async function setConversationSession(rootDir, phone, payload = {}) {
   }
 
   const sessions = readCollection(rootDir, 'sessions');
-  const index = sessions.findIndex(item => item.phone === phone);
+  const index = sessions.findIndex(item => normalizeStoredPhone(item.phone) === normalizedPhone);
 
   const record = {
-    id: sessions[index]?.id || `${Date.now()}-${phone}`,
+    id: sessions[index]?.id || `${Date.now()}-${normalizedPhone}`,
     ...sessions[index],
     ...row,
     created_at: sessions[index]?.created_at || nowIso()
@@ -261,8 +292,10 @@ export async function setConversationSession(rootDir, phone, payload = {}) {
 }
 
 export async function createOrder(rootDir, order) {
+  const normalizedPhone = normalizeStoredPhone(order.phone);
+
   const customer = await upsertCustomerInternal(rootDir, {
-    phone: order.phone,
+    phone: normalizedPhone,
     fullName: order.customerName,
     preferredLanguage: order.preferredLanguage || 'ar',
     consentStatus: order.consentStatus || 'service_only',
@@ -270,7 +303,10 @@ export async function createOrder(rootDir, order) {
   });
 
   if (isSupabaseEnabled()) {
-    let currentOrder = { ...order };
+    let currentOrder = {
+      ...order,
+      phone: normalizedPhone
+    };
     let attempts = 0;
     let lastError = null;
 
@@ -315,7 +351,10 @@ export async function createOrder(rootDir, order) {
   const orders = readCollection(rootDir, 'orders');
   const localRecord = {
     ...order,
-    customerId: customer?.id || null
+    phone: normalizedPhone,
+    customerId: customer?.id || null,
+    createdAt: order.createdAt || nowIso(),
+    updatedAt: order.updatedAt || nowIso()
   };
 
   orders.unshift(localRecord);
@@ -324,11 +363,13 @@ export async function createOrder(rootDir, order) {
 }
 
 export async function replaceOrder(rootDir, orderId, order) {
+  const normalizedPhone = normalizeStoredPhone(order.phone);
+
   if (isSupabaseEnabled()) {
     const updated = await patchRows(
       'orders',
       { id: orderId },
-      normalizeOrderRow(order, order.customerId || null)
+      normalizeOrderRow({ ...order, phone: normalizedPhone }, order.customerId || null)
     );
 
     await deleteRows('order_items', { order_id: orderId });
@@ -349,6 +390,7 @@ export async function replaceOrder(rootDir, orderId, order) {
   orders[index] = {
     ...orders[index],
     ...order,
+    phone: normalizedPhone,
     updatedAt: nowIso()
   };
 
@@ -357,6 +399,8 @@ export async function replaceOrder(rootDir, orderId, order) {
 }
 
 export async function getOrderById(rootDir, orderId) {
+  if (!orderId) return null;
+
   if (isSupabaseEnabled()) {
     const rows = await selectRows('orders', { id: orderId }, { limit: 1 });
     return rows[0] || null;
@@ -367,6 +411,8 @@ export async function getOrderById(rootDir, orderId) {
 }
 
 export async function getOrderItems(rootDir, orderId) {
+  if (!orderId) return [];
+
   if (isSupabaseEnabled()) {
     return selectRows(
       'order_items',
@@ -380,22 +426,27 @@ export async function getOrderItems(rootDir, orderId) {
 }
 
 export async function findOrdersByPhone(rootDir, phone) {
+  const normalizedPhone = normalizeStoredPhone(phone);
+  if (!normalizedPhone) return [];
+
   if (isSupabaseEnabled()) {
     return selectRows(
       'orders',
-      { phone },
+      { phone: normalizedPhone },
       { orderBy: 'created_at', ascending: false, limit: 200 }
     );
   }
 
   const orders = readCollection(rootDir, 'orders');
 
-  return orders
-    .filter(item => item.phone === phone)
-    .sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0));
+  return sortByCreatedDesc(
+    orders.filter(item => normalizeStoredPhone(item.phone) === normalizedPhone)
+  );
 }
 
 export async function getOrdersByStatus(rootDir, status, limit = 20) {
+  if (!status) return [];
+
   if (isSupabaseEnabled()) {
     return selectRows(
       'orders',
@@ -405,7 +456,7 @@ export async function getOrdersByStatus(rootDir, status, limit = 20) {
   }
 
   const orders = readCollection(rootDir, 'orders');
-  return orders.filter(item => item.status === status).slice(0, limit);
+  return sortByCreatedDesc(orders.filter(item => item.status === status)).slice(0, limit);
 }
 
 export async function getAllOrders(rootDir, limit = 5000) {
@@ -413,9 +464,7 @@ export async function getAllOrders(rootDir, limit = 5000) {
     return selectRows('orders', {}, { orderBy: 'created_at', ascending: false, limit });
   }
 
-  return readCollection(rootDir, 'orders')
-    .sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0))
-    .slice(0, limit);
+  return sortByCreatedDesc(readCollection(rootDir, 'orders')).slice(0, limit);
 }
 
 export async function getAllCustomers(rootDir, limit = 5000) {
@@ -423,9 +472,7 @@ export async function getAllCustomers(rootDir, limit = 5000) {
     return selectRows('customers', {}, { orderBy: 'created_at', ascending: false, limit });
   }
 
-  return readCollection(rootDir, 'customers')
-    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-    .slice(0, limit);
+  return sortByCreatedDesc(readCollection(rootDir, 'customers')).slice(0, limit);
 }
 
 export async function getAllMessages(rootDir, limit = 5000) {
@@ -481,7 +528,7 @@ export async function getOperationalReport(rootDir, period = 'today') {
   const phoneMap = new Map();
 
   for (const message of filteredMessages) {
-    const phone = String(message.phone || message.from || message.to || '').trim();
+    const phone = normalizeStoredPhone(message.phone || message.from || message.to || '');
     if (!phone) continue;
 
     if (!phoneMap.has(phone)) {
@@ -551,7 +598,7 @@ export async function getCampaignAudiencePreview(rootDir, groupKey = 'all') {
   const audience = new Map();
 
   function ensurePhone(phone) {
-    const normalized = String(phone || '').trim();
+    const normalized = normalizeStoredPhone(phone);
     if (!normalized) return null;
 
     if (!audience.has(normalized)) {
@@ -583,8 +630,8 @@ export async function getCampaignAudiencePreview(rootDir, groupKey = 'all') {
       entry.last_order_at = orderTs;
     }
 
-    if (order.delivery_zone_name) {
-      entry.last_zone_name = order.delivery_zone_name;
+    if (order.delivery_zone_name || order.deliveryZoneName) {
+      entry.last_zone_name = order.delivery_zone_name || order.deliveryZoneName;
     }
   }
 
@@ -682,17 +729,25 @@ export async function updateOrderStatus(rootDir, orderId, status, statusLabelAr,
     updated = orders[index];
   }
 
-  const previousStatus = String(before?.status || '').trim();
-  const currentStatus = String(updated?.status || status || '').trim();
+  const previousStatus = safeString(before?.status);
+  const currentStatus = safeString(updated?.status || status);
 
   if (updated && currentStatus && currentStatus !== previousStatus) {
     const metaResult = await trackOrderStatusChanged(
-      { site: { baseUrl: process.env.BASE_URL || 'https://matbakh-alyoum.site' } },
+      {
+        channels: {
+          website: getWebsiteBaseUrl(),
+          tracking: getTrackingSourceUrl()
+        },
+        site: {
+          baseUrl: getWebsiteBaseUrl()
+        }
+      },
       {
         order: updated,
         status: currentStatus,
         actionSource: 'system_generated',
-        eventSourceUrl: `${process.env.BASE_URL || 'https://matbakh-alyoum.site'}/track.html`,
+        eventSourceUrl: getTrackingSourceUrl(),
         userData: {
           phone: updated.phone || before.phone,
           external_id: updated.id || before.id
@@ -774,7 +829,7 @@ export async function createLead(rootDir, lead) {
     id: lead.id,
     source: lead.source || 'website',
     full_name: lead.name || lead.fullName || null,
-    phone: lead.phone || null,
+    phone: lead.phone ? normalizeStoredPhone(lead.phone) : null,
     preferred_channel: lead.preferredChannel || 'whatsapp',
     notes: lead.notes || null,
     created_at: lead.createdAt || nowIso()
@@ -788,6 +843,7 @@ export async function createLead(rootDir, lead) {
   const leads = readCollection(rootDir, 'leads');
   const localLead = {
     ...lead,
+    phone: row.phone,
     createdAt: lead.createdAt || nowIso()
   };
 
@@ -797,11 +853,13 @@ export async function createLead(rootDir, lead) {
 }
 
 async function saveMessage(rootDir, message, direction = 'inbound') {
+  const normalizedPhone = normalizeStoredPhone(message.from || message.to || null);
+
   const row = {
     id: message.id,
     channel: 'whatsapp',
     direction,
-    phone: message.from || message.to || null,
+    phone: normalizedPhone || null,
     message_type: message.type || 'text',
     content: message.text || message.content || null,
     media_id: message.audioId || message.mediaId || null,
@@ -827,6 +885,9 @@ async function saveMessage(rootDir, message, direction = 'inbound') {
   const messages = readCollection(rootDir, 'messages');
   messages.unshift({
     ...message,
+    from: message.from ? normalizeStoredPhone(message.from) : message.from,
+    to: message.to ? normalizeStoredPhone(message.to) : message.to,
+    phone: normalizedPhone || null,
     direction,
     failed_supabase_sync: isSupabaseEnabled()
   });
