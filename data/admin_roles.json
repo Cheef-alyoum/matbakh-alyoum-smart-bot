@@ -1,0 +1,23 @@
+[
+  {
+    "phone": "962788328832",
+    "displayName": "إدارة عليا",
+    "role": "super_admin",
+    "enabled": true,
+    "notes": "صلاحية كاملة على الطلبات والتقارير والحملات"
+  },
+  {
+    "phone": "962799060405",
+    "displayName": "إدارة التشغيل",
+    "role": "operations_admin",
+    "enabled": true,
+    "notes": "اعتماد الطلبات ومتابعتها وتشغيل التقارير"
+  },
+  {
+    "phone": "962799080840",
+    "displayName": "إدارة التسويق",
+    "role": "marketing_admin",
+    "enabled": true,
+    "notes": "يبقى مفعّلًا، ويبدأ العمل الفعلي بمجرد فتح نافذة 24 ساعة برسالة واردة من الرقم"
+  }
+]
