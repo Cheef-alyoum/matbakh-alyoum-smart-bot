@@ -1,366 +1,126 @@
-"use strict";
-
-const crypto = require("crypto");
-
-const META_API_VERSION = process.env.META_API_VERSION || "v25.0";
-const META_DATASET_ID = process.env.META_DATASET_ID || "1385933613086178";
-const META_CAPI_ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN || "";
+import crypto from 'node:crypto';
 
 /**
- * تحويل أي قيمة إلى نص منظف
- * @param {any} value
- * @returns {string|null}
+ * تنظيف النص
  */
-function cleanString(value) {
+function clean(value) {
   if (value === null || value === undefined) return null;
-  const result = String(value).trim();
-  return result ? result : null;
+  const v = String(value).trim();
+  return v ? v : null;
 }
 
 /**
- * تشفير SHA256
- * @param {string} value
- * @returns {string}
+ * SHA256
  */
 function sha256(value) {
-  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 /**
- * تنظيف البريد الإلكتروني قبل التشفير
- * @param {string|null|undefined} email
- * @returns {string|null}
- */
-function normalizeEmail(email) {
-  const value = cleanString(email);
-  if (!value) return null;
-  return value.toLowerCase();
-}
-
-/**
- * تنظيف رقم الهاتف قبل التشفير
- * أمثلة:
- * 0779960015 -> 962779960015
- * +962779960015 -> 962779960015
- * 962779960015 -> 962779960015
- * @param {string|null|undefined} phone
- * @returns {string|null}
+ * تحويل الهاتف إلى صيغة دولية
  */
 function normalizePhone(phone) {
-  const value = cleanString(phone);
-  if (!value) return null;
+  const v = clean(phone);
+  if (!v) return null;
 
-  let digits = value.replace(/[^\d]/g, "");
+  let digits = v.replace(/[^\d]/g, '');
 
-  if (digits.startsWith("00")) {
-    digits = digits.slice(2);
+  if (digits.startsWith('00')) digits = digits.slice(2);
+
+  if (digits.startsWith('0') && digits.length >= 9) {
+    digits = '962' + digits.slice(1);
   }
 
-  if (digits.startsWith("0") && digits.length >= 9) {
-    digits = "962" + digits.slice(1);
+  if (digits.length === 9 && digits.startsWith('7')) {
+    digits = '962' + digits;
   }
 
-  if (digits.length === 9 && digits.startsWith("7")) {
-    digits = "962" + digits;
-  }
-
-  return digits || null;
+  return digits;
 }
 
 /**
- * تنظيف الاسم الأول قبل التشفير
- * @param {string|null|undefined} firstName
- * @returns {string|null}
+ * تحويل البريد
  */
-function normalizeFirstName(firstName) {
-  const value = cleanString(firstName);
-  if (!value) return null;
-  return value.toLowerCase();
+function normalizeEmail(email) {
+  const v = clean(email);
+  if (!v) return null;
+  return v.toLowerCase();
 }
 
 /**
- * تنظيف الاسم الأخير قبل التشفير
- * @param {string|null|undefined} lastName
- * @returns {string|null}
+ * بناء user_data
  */
-function normalizeLastName(lastName) {
-  const value = cleanString(lastName);
-  if (!value) return null;
-  return value.toLowerCase();
-}
+function buildUserData(user = {}) {
+  const data = {};
 
-/**
- * تنظيف المدينة قبل التشفير
- * @param {string|null|undefined} city
- * @returns {string|null}
- */
-function normalizeCity(city) {
-  const value = cleanString(city);
-  if (!value) return null;
-  return value.toLowerCase();
-}
-
-/**
- * إضافة حقل مجزأ إلى user_data
- * @param {object} userData
- * @param {string} key
- * @param {string|null} value
- */
-function addHashedField(userData, key, value) {
-  if (!value) return;
-  userData[key] = [sha256(value)];
-}
-
-/**
- * بناء user_data وفق تنسيق Meta
- * @param {object} params
- * @param {string|number|null} [params.leadId]
- * @param {string|null} [params.email]
- * @param {string|null} [params.phone]
- * @param {string|null} [params.firstName]
- * @param {string|null} [params.lastName]
- * @param {string|null} [params.city]
- * @returns {object}
- */
-function buildUserData({
-  leadId = null,
-  email = null,
-  phone = null,
-  firstName = null,
-  lastName = null,
-  city = null
-} = {}) {
-  const userData = {};
-
-  const cleanLeadId = cleanString(leadId);
-  if (cleanLeadId) {
-    userData.lead_id = cleanLeadId;
+  if (user.phone) {
+    const phone = normalizePhone(user.phone);
+    if (phone) data.ph = [sha256(phone)];
   }
 
-  addHashedField(userData, "em", normalizeEmail(email));
-  addHashedField(userData, "ph", normalizePhone(phone));
-  addHashedField(userData, "fn", normalizeFirstName(firstName));
-  addHashedField(userData, "ln", normalizeLastName(lastName));
-  addHashedField(userData, "ct", normalizeCity(city));
+  if (user.email) {
+    const email = normalizeEmail(user.email);
+    if (email) data.em = [sha256(email)];
+  }
 
-  return userData;
+  if (user.firstName) {
+    data.fn = [sha256(user.firstName.toLowerCase())];
+  }
+
+  if (user.city) {
+    data.ct = [sha256(user.city.toLowerCase())];
+  }
+
+  return data;
 }
 
 /**
- * إزالة القيم الفارغة من user_data
- * @param {object} userData
- * @returns {object}
+ * إرسال الحدث إلى Meta
  */
-function pruneUserData(userData) {
-  const result = {};
-
-  for (const [key, value] of Object.entries(userData || {})) {
-    if (value === null || value === undefined) continue;
-
-    if (Array.isArray(value)) {
-      if (value.length > 0) {
-        result[key] = value;
-      }
-      continue;
-    }
-
-    if (typeof value === "string" && value.trim() !== "") {
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
-
-/**
- * بناء الحمولة النهائية
- * @param {object} params
- * @param {string} params.eventName
- * @param {number} [params.eventTime]
- * @param {string} [params.leadEventSource]
- * @param {string|number|null} [params.leadId]
- * @param {string|null} [params.email]
- * @param {string|null} [params.phone]
- * @param {string|null} [params.firstName]
- * @param {string|null} [params.lastName]
- * @param {string|null} [params.city]
- * @param {string|null} [params.testEventCode]
- * @returns {object}
- */
-function buildMetaCapiPayload({
-  eventName,
-  eventTime = Math.floor(Date.now() / 1000),
-  leadEventSource = "Matbakh Al Youm CRM",
-  leadId = null,
-  email = null,
-  phone = null,
-  firstName = null,
-  lastName = null,
-  city = null,
-  testEventCode = null
-} = {}) {
-  const cleanEventName = cleanString(eventName);
-  if (!cleanEventName) {
-    throw new Error("eventName is required");
-  }
-
-  const userData = pruneUserData(
-    buildUserData({
-      leadId,
-      email,
-      phone,
-      firstName,
-      lastName,
-      city
-    })
-  );
-
-  const payload = {
-    data: [
-      {
-        action_source: "system_generated",
-        event_name: cleanEventName,
-        event_time: eventTime,
-        custom_data: {
-          event_source: "crm",
-          lead_event_source: leadEventSource
-        },
-        user_data: userData
-      }
-    ]
-  };
-
-  const cleanTestEventCode = cleanString(testEventCode);
-  if (cleanTestEventCode) {
-    payload.test_event_code = cleanTestEventCode;
-  }
-
-  return payload;
-}
-
-/**
- * إنشاء رابط الإرسال إلى Meta
- * @returns {string}
- */
-function buildMetaEndpoint() {
-  if (!META_DATASET_ID) {
-    throw new Error("META_DATASET_ID is missing");
-  }
-
-  if (!META_CAPI_ACCESS_TOKEN) {
-    throw new Error("META_CAPI_ACCESS_TOKEN is missing");
-  }
-
-  return `https://graph.facebook.com/${META_API_VERSION}/${META_DATASET_ID}/events?access_token=${encodeURIComponent(META_CAPI_ACCESS_TOKEN)}`;
-}
-
-/**
- * إرسال حدث إلى Meta
- * @param {object} params
- * @returns {Promise<object>}
- */
-async function sendMetaCapiEvent(params = {}) {
-  const endpoint = buildMetaEndpoint();
-  const payload = buildMetaCapiPayload(params);
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  let result;
+export async function sendMetaEvent(appConfig, event = {}) {
   try {
-    result = await response.json();
-  } catch (error) {
-    result = {
-      error: {
-        message: "Invalid JSON response from Meta",
-        details: error.message
-      }
+    const DATASET_ID = process.env.META_DATASET_ID;
+    const ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN;
+    const API_VERSION = process.env.META_API_VERSION || 'v25.0';
+
+    if (!DATASET_ID || !ACCESS_TOKEN) {
+      console.warn('META CONFIG MISSING');
+      return { skipped: true };
+    }
+
+    const payload = {
+      data: [
+        {
+          event_name: event.event_name || 'Lead',
+          event_time: Math.floor(Date.now() / 1000),
+          action_source: event.action_source || 'system_generated',
+          event_source_url: event.event_source_url || undefined,
+          user_data: buildUserData(event.user_data || {}),
+          custom_data: event.custom_data || {}
+        }
+      ]
     };
+
+    const url = `https://graph.facebook.com/${API_VERSION}/${DATASET_ID}/events?access_token=${encodeURIComponent(ACCESS_TOKEN)}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('META ERROR', result);
+      return { ok: false, error: result };
+    }
+
+    console.log('META EVENT SENT', event.event_name);
+    return { ok: true, result };
+
+  } catch (err) {
+    console.error('META SEND FAILED', err);
+    return { ok: false, error: err.message };
   }
-
-  if (!response.ok) {
-    throw new Error(`Meta CAPI request failed: ${JSON.stringify(result)}`);
-  }
-
-  return {
-    ok: true,
-    status: response.status,
-    endpoint,
-    payload,
-    result
-  };
 }
-
-/**
- * حدث Lead
- * @param {object} params
- * @returns {Promise<object>}
- */
-async function sendLeadEvent(params = {}) {
-  return sendMetaCapiEvent({
-    ...params,
-    eventName: "Lead"
-  });
-}
-
-/**
- * حدث OrderSubmitted
- * @param {object} params
- * @returns {Promise<object>}
- */
-async function sendOrderSubmittedEvent(params = {}) {
-  return sendMetaCapiEvent({
-    ...params,
-    eventName: "OrderSubmitted"
-  });
-}
-
-/**
- * حدث Purchase
- * @param {object} params
- * @returns {Promise<object>}
- */
-async function sendPurchaseEvent(params = {}) {
-  return sendMetaCapiEvent({
-    ...params,
-    eventName: "Purchase"
-  });
-}
-
-/**
- * حدث مخصص
- * @param {string} eventName
- * @param {object} params
- * @returns {Promise<object>}
- */
-async function sendCustomEvent(eventName, params = {}) {
-  return sendMetaCapiEvent({
-    ...params,
-    eventName
-  });
-}
-
-module.exports = {
-  META_API_VERSION,
-  META_DATASET_ID,
-  buildMetaEndpoint,
-  sha256,
-  cleanString,
-  normalizeEmail,
-  normalizePhone,
-  normalizeFirstName,
-  normalizeLastName,
-  normalizeCity,
-  buildUserData,
-  buildMetaCapiPayload,
-  sendMetaCapiEvent,
-  sendLeadEvent,
-  sendOrderSubmittedEvent,
-  sendPurchaseEvent,
-  sendCustomEvent
-};
