@@ -5,7 +5,6 @@ const META_DISABLED_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled']);
 const DEFAULT_GRAPH_API_VERSION = 'v25.0';
 const DEFAULT_BASE_URL = 'https://matbakh-alyoum.site';
 const DEFAULT_LEAD_EVENT_SOURCE = 'Matbakh Alyoum CRM';
-const APP_SECRET_ENV_KEYS = ['META_APP_SECRET', 'APP_SECRET'];
 
 const ORDER_STATUS_EVENT_MAP = {
   approved: {
@@ -58,19 +57,8 @@ function buildAbsoluteUrl(baseUrl, targetPath = '/') {
   }
 }
 
-function getConfiguredAppSecret() {
-  for (const key of APP_SECRET_ENV_KEYS) {
-    const value = cleanValue(process.env[key]);
-    if (value) {
-      return { key, value };
-    }
-  }
-
-  return { key: null, value: undefined };
-}
-
 function shouldUseAppSecretProof() {
-  return !isDisabledFlag(process.env.META_SEND_APPSECRET_PROOF, false);
+  return false;
 }
 
 function normalizePhoneSafe(value) {
@@ -210,7 +198,7 @@ function normalizeUserData(userData = {}) {
 }
 
 function getGraphApiVersion() {
-  return cleanValue(process.env.META_GRAPH_API_VERSION) || DEFAULT_GRAPH_API_VERSION;
+  return cleanValue(process.env.META_GRAPH_API_VERSION) || cleanValue(process.env.META_API_VERSION) || DEFAULT_GRAPH_API_VERSION;
 }
 
 function getOrderValue(order = {}) {
@@ -245,37 +233,10 @@ function getLeadEmail(lead = {}) {
   return cleanEmail(lead.email);
 }
 
-function buildAppSecretProof(accessToken, appSecret) {
-  if (!accessToken || !appSecret) return undefined;
-
-  return crypto
-    .createHmac('sha256', appSecret)
-    .update(accessToken)
-    .digest('hex');
-}
-
-function buildEventsApiUrl(pixelId, accessToken, { appSecretProof } = {}) {
-  const requestUrl = new URL(`https://graph.facebook.com/${getGraphApiVersion()}/${pixelId}/events`);
+function buildEventsApiUrl(datasetOrPixelId, accessToken) {
+  const requestUrl = new URL(`https://graph.facebook.com/${getGraphApiVersion()}/${datasetOrPixelId}/events`);
   requestUrl.searchParams.set('access_token', accessToken);
-
-  if (appSecretProof) {
-    requestUrl.searchParams.set('appsecret_proof', appSecretProof);
-  }
-
   return requestUrl;
-}
-
-function extractMetaErrorMessage(result) {
-  return String(
-    result?.data?.error?.message ||
-    result?.error ||
-    ''
-  ).trim();
-}
-
-function isInvalidAppSecretProofResult(result) {
-  const message = extractMetaErrorMessage(result).toLowerCase();
-  return message.includes('invalid appsecret_proof');
 }
 
 async function performMetaRequest(requestUrl, payload) {
@@ -312,20 +273,19 @@ export function isMetaCrmEnabled() {
 export { getMetaBaseUrl };
 
 export function getMetaCrmDiagnostics() {
-  const pixelId = cleanValue(process.env.META_PIXEL_ID);
-  const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
-  const appSecretInfo = getConfiguredAppSecret();
+  const datasetId = cleanValue(process.env.META_DATASET_ID) || cleanValue(process.env.META_PIXEL_ID);
+  const accessToken =
+    cleanValue(process.env.META_CAPI_ACCESS_TOKEN) ||
+    cleanValue(process.env.META_ACCESS_TOKEN);
+
   const testEventCode = cleanValue(process.env.META_TEST_EVENT_CODE);
 
   return {
     enabled: isMetaCrmEnabled(),
-    configured: Boolean(pixelId && accessToken),
-    pixelIdConfigured: Boolean(pixelId),
+    configured: Boolean(datasetId && accessToken),
+    datasetIdConfigured: Boolean(datasetId),
     accessTokenConfigured: Boolean(accessToken),
-    appSecretConfigured: Boolean(appSecretInfo.value),
-    appSecretEnvKey: appSecretInfo.key,
     appSecretProofEnabled: shouldUseAppSecretProof(),
-    appSecretProofConfigured: Boolean(accessToken && appSecretInfo.value && shouldUseAppSecretProof()),
     testEventCodeConfigured: Boolean(testEventCode),
     graphApiVersion: getGraphApiVersion(),
     leadEventSource: getLeadEventSource(),
@@ -491,13 +451,16 @@ export async function sendMetaEvent(config, event = {}) {
     return { skipped: true, reason: 'META_CRM_ENABLED=false' };
   }
 
-  const pixelId = cleanValue(process.env.META_PIXEL_ID);
-  const accessToken = cleanValue(process.env.META_ACCESS_TOKEN);
-  const appSecretInfo = getConfiguredAppSecret();
-  const appSecret = appSecretInfo.value;
+  const datasetId = cleanValue(process.env.META_DATASET_ID) || cleanValue(process.env.META_PIXEL_ID);
+  const accessToken =
+    cleanValue(process.env.META_CAPI_ACCESS_TOKEN) ||
+    cleanValue(process.env.META_ACCESS_TOKEN);
 
-  if (!pixelId || !accessToken) {
-    return { skipped: true, reason: 'META_PIXEL_ID أو META_ACCESS_TOKEN غير مضبوطين.' };
+  if (!datasetId || !accessToken) {
+    return {
+      skipped: true,
+      reason: 'META_DATASET_ID/META_PIXEL_ID أو META_CAPI_ACCESS_TOKEN/META_ACCESS_TOKEN غير مضبوطين.'
+    };
   }
 
   const payload = pruneObject({
@@ -515,44 +478,27 @@ export async function sendMetaEvent(config, event = {}) {
     test_event_code: cleanValue(process.env.META_TEST_EVENT_CODE)
   });
 
-  const wantsProof = shouldUseAppSecretProof();
-  const appSecretProof = wantsProof ? buildAppSecretProof(accessToken, appSecret) : undefined;
-  const triedWithProof = Boolean(appSecretProof);
+  const requestUrl = buildEventsApiUrl(datasetId, accessToken);
+  const result = await performMetaRequest(requestUrl, payload);
 
-  const firstUrl = buildEventsApiUrl(pixelId, accessToken, { appSecretProof });
-  const firstResult = await performMetaRequest(firstUrl, payload);
-
-  if (firstResult.ok) {
-    return {
-      ...firstResult,
-      used_appsecret_proof: triedWithProof,
-      app_secret_env_key: appSecretInfo.key || null
-    };
-  }
-
-  if (triedWithProof && isInvalidAppSecretProofResult(firstResult)) {
-    console.warn('META_APPSECRET_PROOF_RETRY_WITHOUT_PROOF', JSON.stringify({
-      status: firstResult.status,
-      error: firstResult.data?.error || firstResult.error || null,
-      appSecretEnvKey: appSecretInfo.key || null
+  if (result.ok) {
+    console.log('META_EVENT_SENT', JSON.stringify({
+      eventName: payload?.data?.[0]?.event_name || null,
+      eventId: payload?.data?.[0]?.event_id || null,
+      statusCode: result.status
     }));
-
-    const retryUrl = buildEventsApiUrl(pixelId, accessToken);
-    const retryResult = await performMetaRequest(retryUrl, payload);
-
-    return {
-      ...retryResult,
-      retried_without_appsecret_proof: true,
-      first_attempt_status: firstResult.status,
-      first_attempt_error: firstResult.data?.error || firstResult.error || null,
-      used_appsecret_proof: false,
-      app_secret_env_key: appSecretInfo.key || null
-    };
+  } else {
+    console.error('META_EVENT_FAILED', JSON.stringify({
+      eventName: payload?.data?.[0]?.event_name || null,
+      eventId: payload?.data?.[0]?.event_id || null,
+      statusCode: result.status,
+      error: result.data?.error || result.error || null
+    }));
   }
 
   return {
-    ...firstResult,
-    used_appsecret_proof: triedWithProof,
-    app_secret_env_key: appSecretInfo.key || null
+    ...result,
+    used_appsecret_proof: false,
+    dataset_id: datasetId
   };
 }
