@@ -423,14 +423,21 @@ const server = http.createServer(async (req, res) => {
 
       await sendMetaEvent(appConfig, {
         event_name: 'Lead',
-        action_source: 'website',
+        action_source: 'system_generated',
         event_source_url: buildEventSourceUrl(channels.website, '/'),
+        event_id: `lead-${lead.id}`,
         user_data: {
-          phone: lead.phone
+          phone: lead.phone,
+          lead_id: lead.id,
+          external_id: lead.id
         },
         custom_data: {
+          event_source: 'crm',
+          lead_event_source: process.env.META_CRM_SOURCE_NAME || 'Matbakh Alyoum CRM',
           content_name: 'website_lead',
-          source: lead.source
+          source: lead.source,
+          preferred_channel: lead.preferredChannel || 'whatsapp',
+          crm_stage: 'new'
         }
       });
 
@@ -487,16 +494,27 @@ const server = http.createServer(async (req, res) => {
 
       await sendMetaEvent(appConfig, {
         event_name: 'InitiateCheckout',
-        action_source: 'website',
+        action_source: 'system_generated',
         event_source_url: buildEventSourceUrl(channels.order, '/order.html'),
+        event_id: `checkout-${order.id}`,
         user_data: {
-          phone
+          phone,
+          lead_id: order.id,
+          external_id: order.id
         },
         custom_data: {
+          event_source: 'crm',
+          lead_event_source: process.env.META_CRM_SOURCE_NAME || 'Matbakh Alyoum CRM',
           currency: 'JOD',
           content_name: 'order_submitted',
+          content_category: 'kitchen_order',
           num_items: items.length,
-          value: subtotal + deliveryFee
+          value: subtotal + deliveryFee,
+          order_id: order.id,
+          delivery_type: deliveryType,
+          payment_method: paymentMethod,
+          crm_stage: 'new',
+          order_source: 'crm'
         }
       });
 
@@ -566,19 +584,40 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (['approved', 'delivered'].includes(statusValidation.status)) {
+        const isApproved = statusValidation.status === 'approved';
+
         await sendMetaEvent(appConfig, {
-          event_name: statusValidation.status === 'approved' ? 'QualifiedLead' : 'Purchase',
+          event_name: isApproved ? 'QualifiedLead' : 'Purchase',
           action_source: 'system_generated',
+          event_source_url: buildEventSourceUrl(channels.tracking, '/track.html'),
+          event_id: `${statusValidation.status}-${updated.id}`,
+          user_data: {
+            phone: updated.phone,
+            lead_id: updated.id,
+            external_id: updated.id
+          },
           custom_data: {
+            event_source: 'crm',
+            lead_event_source: process.env.META_CRM_SOURCE_NAME || 'Matbakh Alyoum CRM',
             order_id: updated.id,
             status: statusValidation.status,
             value: Number(updated.totalJod || updated.total_jod || 0) || undefined,
-            currency: 'JOD'
-          },
-          user_data: {
-            phone: updated.phone
+            currency: 'JOD',
+            crm_stage: isApproved ? 'qualified' : 'delivered',
+            content_name: isApproved ? 'order_approved' : 'order_delivered',
+            content_category: 'kitchen_order'
           }
         });
+
+        console.log(
+          'META_ORDER_STATUS_EVENT_SENT',
+          JSON.stringify({
+            orderId: updated.id,
+            previousStatus: body.previousStatus || null,
+            currentStatus: statusValidation.status,
+            statusCode: 200
+          })
+        );
       }
 
       return json(res, 200, {
