@@ -57,6 +57,10 @@ function buildAbsoluteUrl(baseUrl, targetPath = '/') {
   }
 }
 
+/**
+ * تم تعطيل appsecret_proof نهائيًا
+ * لتفادي أخطاء Invalid appsecret_proof
+ */
 function shouldUseAppSecretProof() {
   return false;
 }
@@ -198,7 +202,7 @@ function normalizeUserData(userData = {}) {
 }
 
 function getGraphApiVersion() {
-  return cleanValue(process.env.META_GRAPH_API_VERSION) || cleanValue(process.env.META_API_VERSION) || DEFAULT_GRAPH_API_VERSION;
+  return cleanValue(process.env.META_GRAPH_API_VERSION) || DEFAULT_GRAPH_API_VERSION;
 }
 
 function getOrderValue(order = {}) {
@@ -277,7 +281,6 @@ export function getMetaCrmDiagnostics() {
   const accessToken =
     cleanValue(process.env.META_CAPI_ACCESS_TOKEN) ||
     cleanValue(process.env.META_ACCESS_TOKEN);
-
   const testEventCode = cleanValue(process.env.META_TEST_EVENT_CODE);
 
   return {
@@ -457,10 +460,7 @@ export async function sendMetaEvent(config, event = {}) {
     cleanValue(process.env.META_ACCESS_TOKEN);
 
   if (!datasetId || !accessToken) {
-    return {
-      skipped: true,
-      reason: 'META_DATASET_ID/META_PIXEL_ID أو META_CAPI_ACCESS_TOKEN/META_ACCESS_TOKEN غير مضبوطين.'
-    };
+    return { skipped: true, reason: 'META_DATASET_ID أو META_PIXEL_ID أو META_CAPI_ACCESS_TOKEN أو META_ACCESS_TOKEN غير مضبوطين.' };
   }
 
   const payload = pruneObject({
@@ -482,18 +482,24 @@ export async function sendMetaEvent(config, event = {}) {
   const result = await performMetaRequest(requestUrl, payload);
 
   if (result.ok) {
-    console.log('META_EVENT_SENT', JSON.stringify({
-      eventName: payload?.data?.[0]?.event_name || null,
-      eventId: payload?.data?.[0]?.event_id || null,
-      statusCode: result.status
-    }));
+    console.log(
+      'META_EVENT_SENT',
+      JSON.stringify({
+        eventName: payload?.data?.[0]?.event_name || null,
+        eventId: payload?.data?.[0]?.event_id || null,
+        statusCode: result.status
+      })
+    );
   } else {
-    console.error('META_EVENT_FAILED', JSON.stringify({
-      eventName: payload?.data?.[0]?.event_name || null,
-      eventId: payload?.data?.[0]?.event_id || null,
-      statusCode: result.status,
-      error: result.data?.error || result.error || null
-    }));
+    console.error(
+      'META_EVENT_FAILED',
+      JSON.stringify({
+        eventName: payload?.data?.[0]?.event_name || null,
+        eventId: payload?.data?.[0]?.event_id || null,
+        statusCode: result.status,
+        error: result.data?.error || result.error || null
+      })
+    );
   }
 
   return {
