@@ -133,6 +133,61 @@ function getTrackingSourceUrl() {
   return safeString(process.env.PUBLIC_TRACKING_URL, `${getWebsiteBaseUrl()}/track.html`);
 }
 
+function normalizeMetaAttribution(meta = {}) {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return {};
+  return {
+    fbclid: safeString(meta.fbclid),
+    fbc: safeString(meta.fbc),
+    fbp: safeString(meta.fbp),
+    landingPage: safeString(meta.landingPage),
+    eventSourceUrl: safeString(meta.eventSourceUrl),
+    utmSource: safeString(meta.utmSource || meta.utm_source),
+    utmMedium: safeString(meta.utmMedium || meta.utm_medium),
+    utmCampaign: safeString(meta.utmCampaign || meta.utm_campaign),
+    platformHint: safeString(meta.platformHint || meta.platform_hint),
+    client_ip_address: safeString(meta.client_ip_address),
+    client_user_agent: safeString(meta.client_user_agent),
+    lastSeenAt: safeString(meta.lastSeenAt || meta.last_seen_at)
+  };
+}
+
+function compactObject(obj = {}) {
+  return Object.fromEntries(Object.entries(obj).filter(([, value]) => value != null && value !== ''));
+}
+
+function stringifyOrderMeta(meta = {}) {
+  const normalized = compactObject(normalizeMetaAttribution(meta));
+  if (!Object.keys(normalized).length) return '';
+  return `\n[META_ATTRIBUTION] ${JSON.stringify(normalized)}`;
+}
+
+function extractOrderMeta(order = {}) {
+  const directMeta = compactObject(normalizeMetaAttribution(order.meta || {}));
+  if (Object.keys(directMeta).length) return directMeta;
+
+  const notes = String(order.order_notes || order.orderNotes || order.notes || '');
+  const match = notes.match(/\[META_ATTRIBUTION\]\s*(\{.*\})/s);
+  if (!match) return {};
+
+  try {
+    return compactObject(normalizeMetaAttribution(JSON.parse(match[1])));
+  } catch {
+    return {};
+  }
+}
+
+function marketingSourceFromMeta(meta = {}) {
+  const source = safeString(meta.utmSource).toLowerCase();
+  const campaign = safeString(meta.utmCampaign);
+  const platformHint = safeString(meta.platformHint).toLowerCase();
+
+  if (source) return { source, campaign };
+  if (platformHint.includes('instagram')) return { source: 'instagram', campaign };
+  if (platformHint.includes('facebook')) return { source: 'facebook', campaign };
+  if (meta.fbclid || meta.fbc || meta.fbp) return { source: 'meta', campaign };
+  return { source: 'direct', campaign };
+}
+
 function normalizeOrderRow(order, customerId = null) {
   return {
     id: order.id,
@@ -150,7 +205,7 @@ function normalizeOrderRow(order, customerId = null) {
     payment_method: order.paymentMethod || order.payment_method || 'cash',
     payment_status: order.paymentStatus || order.payment_status || 'pending',
     address_text: order.address || order.address_text || null,
-    order_notes: order.notes || order.order_notes || null,
+    order_notes: [order.notes || order.order_notes || null, stringifyOrderMeta(order.meta)].filter(Boolean).join('').trim() || null,
     admin_notes: order.adminNotes || order.admin_notes || null,
     subtotal_jod: Number(order.subtotalJod || order.subtotal_jod || 0),
     delivery_fee_jod: Number(order.deliveryFeeJod || order.delivery_fee_jod || 0),
@@ -189,6 +244,11 @@ function sortByCreatedDesc(items = []) {
     const bDate = new Date(b.updated_at || b.updatedAt || b.created_at || b.createdAt || 0).getTime();
     return bDate - aDate;
   });
+}
+
+function enrichOrderRecord(order) {
+  if (!order) return null;
+  return { ...order, meta: extractOrderMeta(order) };
 }
 
 async function upsertCustomerInternal(rootDir, payload) {
@@ -359,6 +419,7 @@ export async function createOrder(rootDir, order) {
   const orders = readCollection(rootDir, 'orders');
   const localRecord = {
     ...order,
+    meta: compactObject(normalizeMetaAttribution(order.meta || {})),
     phone: normalizedPhone,
     customerId: customer?.id || null,
     createdAt: order.createdAt || nowIso(),
@@ -411,11 +472,11 @@ export async function getOrderById(rootDir, orderId) {
 
   if (isSupabaseEnabled()) {
     const rows = await selectRows('orders', { id: orderId }, { limit: 1 });
-    return firstRow(rows);
+    return enrichOrderRecord(firstRow(rows));
   }
 
   const orders = readCollection(rootDir, 'orders');
-  return orders.find(item => item.id === orderId) || null;
+  return enrichOrderRecord(orders.find(item => item.id === orderId) || null);
 }
 
 export async function getOrderItems(rootDir, orderId) {
@@ -438,41 +499,41 @@ export async function findOrdersByPhone(rootDir, phone) {
   if (!normalizedPhone) return [];
 
   if (isSupabaseEnabled()) {
-    return selectRows(
+    return (await selectRows(
       'orders',
       { phone: normalizedPhone },
       { orderBy: 'created_at', ascending: false, limit: 200 }
-    );
+    )).map(enrichOrderRecord);
   }
 
   const orders = readCollection(rootDir, 'orders');
 
   return sortByCreatedDesc(
     orders.filter(item => normalizeStoredPhone(item.phone) === normalizedPhone)
-  );
+  ).map(enrichOrderRecord);
 }
 
 export async function getOrdersByStatus(rootDir, status, limit = 20) {
   if (!status) return [];
 
   if (isSupabaseEnabled()) {
-    return selectRows(
+    return (await selectRows(
       'orders',
       { status },
       { orderBy: 'created_at', ascending: false, limit }
-    );
+    )).map(enrichOrderRecord);
   }
 
   const orders = readCollection(rootDir, 'orders');
-  return sortByCreatedDesc(orders.filter(item => item.status === status)).slice(0, limit);
+  return sortByCreatedDesc(orders.filter(item => item.status === status)).slice(0, limit).map(enrichOrderRecord);
 }
 
 export async function getAllOrders(rootDir, limit = 5000) {
   if (isSupabaseEnabled()) {
-    return selectRows('orders', {}, { orderBy: 'created_at', ascending: false, limit });
+    return (await selectRows('orders', {}, { orderBy: 'created_at', ascending: false, limit })).map(enrichOrderRecord);
   }
 
-  return sortByCreatedDesc(readCollection(rootDir, 'orders')).slice(0, limit);
+  return sortByCreatedDesc(readCollection(rootDir, 'orders')).slice(0, limit).map(enrichOrderRecord);
 }
 
 export async function getAllCustomers(rootDir, limit = 5000) {
@@ -495,6 +556,66 @@ export async function getAllMessages(rootDir, limit = 5000) {
       return new Date(bTs) - new Date(aTs);
     })
     .slice(0, limit);
+}
+
+
+export async function getMarketingReport(rootDir, period = 'today') {
+  const orders = await getAllOrders(rootDir, 5000);
+  const filteredOrders = orders.filter(order => isWithinJordanPeriod(order.created_at || order.createdAt, period));
+
+  const summary = {
+    period,
+    totals: {
+      orders: filteredOrders.length,
+      awaiting_admin_review: 0,
+      approved: 0,
+      delivered: 0,
+      revenue_jod: 0
+    },
+    sources: {},
+    campaigns: {}
+  };
+
+  for (const order of filteredOrders) {
+    const status = safeString(order.status);
+    if (status === 'awaiting_admin_review') summary.totals.awaiting_admin_review += 1;
+    if (status === 'approved') summary.totals.approved += 1;
+    if (status === 'delivered') {
+      summary.totals.delivered += 1;
+      summary.totals.revenue_jod += Number(order.total_jod || order.totalJod || 0) || 0;
+    }
+
+    const meta = extractOrderMeta(order);
+    const sourceInfo = marketingSourceFromMeta(meta);
+    const sourceKey = sourceInfo.source || 'direct';
+    const campaignKey = sourceInfo.campaign || 'unlabeled';
+    const orderValue = Number(order.total_jod || order.totalJod || 0) || 0;
+
+    if (!summary.sources[sourceKey]) {
+      summary.sources[sourceKey] = { source: sourceKey, orders: 0, delivered: 0, revenue_jod: 0 };
+    }
+    summary.sources[sourceKey].orders += 1;
+    if (status === 'delivered') {
+      summary.sources[sourceKey].delivered += 1;
+      summary.sources[sourceKey].revenue_jod += orderValue;
+    }
+
+    const campaignCompositeKey = `${sourceKey}:${campaignKey}`;
+    if (!summary.campaigns[campaignCompositeKey]) {
+      summary.campaigns[campaignCompositeKey] = { source: sourceKey, campaign: campaignKey, orders: 0, delivered: 0, revenue_jod: 0 };
+    }
+    summary.campaigns[campaignCompositeKey].orders += 1;
+    if (status === 'delivered') {
+      summary.campaigns[campaignCompositeKey].delivered += 1;
+      summary.campaigns[campaignCompositeKey].revenue_jod += orderValue;
+    }
+  }
+
+  return {
+    ...summary,
+    sources: Object.values(summary.sources).sort((a, b) => b.revenue_jod - a.revenue_jod || b.orders - a.orders),
+    campaigns: Object.values(summary.campaigns).sort((a, b) => b.revenue_jod - a.revenue_jod || b.orders - a.orders)
+  };
 }
 
 export async function getOperationalReport(rootDir, period = 'today') {

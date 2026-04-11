@@ -24,7 +24,8 @@ import {
   findOrdersByPhone,
   updateOrderStatus,
   createLead,
-  generateNextOrderCode
+  generateNextOrderCode,
+  getMarketingReport
 } from './src/services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -169,6 +170,38 @@ function getPublicChannels() {
 function buildEventSourceUrl(preferredUrl, fallbackPath) {
   if (preferredUrl) return preferredUrl;
   return buildExternalUrl(fallbackPath);
+}
+
+function getRequestClientIp(req) {
+  const forwarded = String(req?.headers?.['x-forwarded-for'] || '').trim();
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return String(req?.headers?.['cf-connecting-ip'] || req?.headers?.['x-real-ip'] || req?.socket?.remoteAddress || '').replace(/^::ffff:/, '').trim();
+}
+
+function normalizeMetaPayload(rawMeta = {}, req) {
+  const meta = rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta) ? rawMeta : {};
+  const landingPage = String(meta.landingPage || '').trim();
+  const eventSourceUrl = String(meta.eventSourceUrl || '').trim();
+  const fbc = String(meta.fbc || '').trim();
+  const fbp = String(meta.fbp || '').trim();
+  const fbclid = String(meta.fbclid || '').trim();
+  const utmSource = String(meta.utmSource || meta.utm_source || '').trim();
+  const utmMedium = String(meta.utmMedium || meta.utm_medium || '').trim();
+  const utmCampaign = String(meta.utmCampaign || meta.utm_campaign || '').trim();
+  const platformHint = String(meta.platformHint || meta.platform_hint || '').trim() || (utmSource ? utmSource : (fbclid || fbc ? 'meta' : ''));
+  return {
+    landingPage: landingPage || undefined,
+    eventSourceUrl: eventSourceUrl || undefined,
+    fbc: fbc || undefined,
+    fbp: fbp || undefined,
+    fbclid: fbclid || undefined,
+    utmSource: utmSource || undefined,
+    utmMedium: utmMedium || undefined,
+    utmCampaign: utmCampaign || undefined,
+    platformHint: platformHint || undefined,
+    client_ip_address: getRequestClientIp(req) || undefined,
+    client_user_agent: String(req?.headers?.['user-agent'] || '').trim() || undefined
+  };
 }
 
 function getAdminAuthState(req) {
@@ -355,6 +388,7 @@ const server = http.createServer(async (req, res) => {
           deliveryZones: '/api/delivery/zones',
           whatsappWebhook: '/api/webhooks/whatsapp',
           metaEvent: '/api/meta/event',
+          marketingReport: '/api/admin/reports/marketing',
           health: '/health'
         }
       });
@@ -411,6 +445,8 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, leadValidation);
       }
 
+      const leadMeta = normalizeMetaPayload(body.meta, req);
+
       const lead = await createLead(rootDir, {
         id: randomUUID(),
         source: body.source || 'website',
@@ -418,18 +454,24 @@ const server = http.createServer(async (req, res) => {
         phone: leadValidation.phone,
         notes: body.notes || '',
         preferredChannel: body.preferredChannel || 'whatsapp',
+        meta: leadMeta,
         createdAt: new Date().toISOString()
       });
 
       await sendMetaEvent(appConfig, {
         event_name: 'Lead',
         action_source: 'system_generated',
-        event_source_url: buildEventSourceUrl(channels.website, '/'),
+        event_source_url: leadMeta.eventSourceUrl || buildEventSourceUrl(channels.website, '/'),
         event_id: `lead-${lead.id}`,
         user_data: {
           phone: lead.phone,
           lead_id: lead.id,
-          external_id: lead.id
+          external_id: lead.id,
+          fbc: leadMeta.fbc,
+          fbp: leadMeta.fbp,
+          fbclid: leadMeta.fbclid,
+          client_ip_address: leadMeta.client_ip_address,
+          client_user_agent: leadMeta.client_user_agent
         },
         custom_data: {
           event_source: 'crm',
@@ -437,7 +479,12 @@ const server = http.createServer(async (req, res) => {
           content_name: 'website_lead',
           source: lead.source,
           preferred_channel: lead.preferredChannel || 'whatsapp',
-          crm_stage: 'new'
+          crm_stage: 'new',
+          landing_page: leadMeta.landingPage,
+          utm_source: leadMeta.utmSource,
+          utm_medium: leadMeta.utmMedium,
+          utm_campaign: leadMeta.utmCampaign,
+          platform_hint: leadMeta.platformHint
         }
       });
 
@@ -460,6 +507,7 @@ const server = http.createServer(async (req, res) => {
       const items = orderValidation.items;
       const deliveryType = orderValidation.deliveryType;
       const paymentMethod = orderValidation.paymentMethod;
+      const orderMeta = normalizeMetaPayload(body.meta, req);
       const notes = body.notes || '';
       const deliverySlot = body.deliverySlot || '';
       const address = body.address || '';
@@ -488,6 +536,7 @@ const server = http.createServer(async (req, res) => {
         subtotalJod: subtotal,
         deliveryFeeJod: deliveryFee,
         totalJod: subtotal + deliveryFee,
+        meta: orderMeta,
         createdAt: now,
         updatedAt: now
       });
@@ -495,12 +544,17 @@ const server = http.createServer(async (req, res) => {
       await sendMetaEvent(appConfig, {
         event_name: 'InitiateCheckout',
         action_source: 'system_generated',
-        event_source_url: buildEventSourceUrl(channels.order, '/order.html'),
+        event_source_url: orderMeta.eventSourceUrl || buildEventSourceUrl(channels.order, '/order.html'),
         event_id: `checkout-${order.id}`,
         user_data: {
           phone,
           lead_id: order.id,
-          external_id: order.id
+          external_id: order.id,
+          fbc: orderMeta.fbc,
+          fbp: orderMeta.fbp,
+          fbclid: orderMeta.fbclid,
+          client_ip_address: orderMeta.client_ip_address,
+          client_user_agent: orderMeta.client_user_agent
         },
         custom_data: {
           event_source: 'crm',
@@ -514,7 +568,12 @@ const server = http.createServer(async (req, res) => {
           delivery_type: deliveryType,
           payment_method: paymentMethod,
           crm_stage: 'new',
-          order_source: 'crm'
+          order_source: 'crm',
+          landing_page: orderMeta.landingPage,
+          utm_source: orderMeta.utmSource,
+          utm_medium: orderMeta.utmMedium,
+          utm_campaign: orderMeta.utmCampaign,
+          platform_hint: orderMeta.platformHint
         }
       });
 
@@ -586,15 +645,23 @@ const server = http.createServer(async (req, res) => {
       if (['approved', 'delivered'].includes(statusValidation.status)) {
         const isApproved = statusValidation.status === 'approved';
 
+        const statusMetaRaw = updated.meta || body.meta || {};
+        const statusMeta = normalizeMetaPayload(statusMetaRaw, req);
+
         await sendMetaEvent(appConfig, {
           event_name: isApproved ? 'QualifiedLead' : 'Purchase',
           action_source: 'system_generated',
-          event_source_url: buildEventSourceUrl(channels.tracking, '/track.html'),
+          event_source_url: statusMeta.eventSourceUrl || buildEventSourceUrl(channels.tracking, '/track.html'),
           event_id: `${statusValidation.status}-${updated.id}`,
           user_data: {
             phone: updated.phone,
             lead_id: updated.id,
-            external_id: updated.id
+            external_id: updated.id,
+            fbc: statusMeta.fbc,
+            fbp: statusMeta.fbp,
+            fbclid: statusMeta.fbclid,
+            client_ip_address: statusMeta.client_ip_address,
+            client_user_agent: statusMeta.client_user_agent
           },
           custom_data: {
             event_source: 'crm',
@@ -605,7 +672,12 @@ const server = http.createServer(async (req, res) => {
             currency: 'JOD',
             crm_stage: isApproved ? 'qualified' : 'delivered',
             content_name: isApproved ? 'order_approved' : 'order_delivered',
-            content_category: 'kitchen_order'
+            content_category: 'kitchen_order',
+            landing_page: statusMeta.landingPage,
+            utm_source: statusMeta.utmSource,
+            utm_medium: statusMeta.utmMedium,
+            utm_campaign: statusMeta.utmCampaign,
+            platform_hint: statusMeta.platformHint
           }
         });
 
@@ -633,6 +705,26 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/webhooks/whatsapp' && method === 'POST') {
       return processWhatsAppWebhook(rootDir, req, res, appConfig);
+    }
+
+    if (pathname === '/api/admin/reports/marketing' && method === 'GET') {
+      const authState = getAdminAuthState(req);
+
+      if (!authState.ok) {
+        return json(res, 401, {
+          ok: false,
+          message: 'غير مصرح لك بعرض التقرير التسويقي.'
+        });
+      }
+
+      const period = String(url.searchParams.get('period') || 'today').trim();
+      const report = await getMarketingReport(rootDir, period);
+      return json(res, 200, {
+        ok: true,
+        period,
+        report,
+        adminAuthEnforced: authState.enforced
+      });
     }
 
     if (pathname === '/api/meta/event' && method === 'POST') {
