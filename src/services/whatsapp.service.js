@@ -5,7 +5,6 @@ import { getMenuItemById, getItemsForRoot, getDisplayUnit } from './menu.service
 import { getActiveAdminPhones, getAdminProfile, isAdminAuthorized, profileCan } from './admin-role.service.js';
 import { createOrder, generateNextOrderCode, getConversationSession, getCustomerProfileSummary, getLatestOpenOrderByPhone, getOrderById, getOrderItems, saveIncomingMessage, saveOutgoingMessage, setConversationSession, updateOrderStatus, upsertCustomer } from './storage.service.js';
 
-// --- معرفات الأزرار ---
 const BUTTON_IDS = {
   START_ORDER: 'start_order', SHOW_MENU_IMG: 'show_menu_img', SHOW_MENU: 'show_menu', HUMAN: 'human_agent',
   ORDER_TODAY: 'order_today', ORDER_FUTURE: 'order_future',
@@ -15,13 +14,15 @@ const BUTTON_IDS = {
   ADMIN_PREPARING: 'admin_prep', ADMIN_READY: 'admin_ready', ADMIN_OUT: 'admin_out', ADMIN_DELIVERED: 'admin_del', ADMIN_FAILED: 'admin_failed'
 };
 
-const TRACK_TERMS = /(حاله|حالة|متابعه|متابعة|track|tracking|status|طلبي|الطلب|وين طلبي|وين الطلب|طلبي وين)/i;
 const INCOMING_MESSAGE_CACHE = new Map();
 const INCOMING_MESSAGE_TTL_MS = 10 * 60 * 1000;
 
 function getSafeHost(req) { return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000'; }
+function nowIso() { return new Date().toISOString(); }
+function money(value) { return `${Number(value || 0).toFixed(3)} د.أ`; }
+function shortButton(title, max = 20) { return String(title || '').trim().slice(0, max); }
+function baseUnitLabel(item) { return getDisplayUnit(item); }
 
-// 🟢 الدالة التي كانت مفقودة (للتحقق من اتصال الواتساب)
 export function whatsappVerify(req, res) {
   const url = new URL(req?.url || '/api/webhooks/whatsapp', `http://${getSafeHost(req)}`);
   if (url.searchParams.get('hub.mode') === 'subscribe' && url.searchParams.get('hub.verify_token') === (process.env.WHATSAPP_VERIFY_TOKEN || '')) {
@@ -30,11 +31,6 @@ export function whatsappVerify(req, res) {
   }
   return json(res, 403, { ok: false, message: 'فشل التحقق من Webhook.' });
 }
-
-function nowIso() { return new Date().toISOString(); }
-function money(value) { return `${Number(value || 0).toFixed(3)} د.أ`; }
-function shortButton(title, max = 20) { return String(title || '').trim().slice(0, max); }
-function baseUnitLabel(item) { return getDisplayUnit(item); }
 
 function isPast6PM() {
   const ammanTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Amman", hour12: false, hour: 'numeric' });
@@ -54,41 +50,24 @@ function hasIncomingMessageBeenProcessed(messageId) {
   return messageId && INCOMING_MESSAGE_CACHE.has(String(messageId));
 }
 
-function normalizeUserText(value = '') {
-  return String(value || '').replace(/[\u200e\u200f\u202a-\u202e]/g, '').replace(/🌿|✅|🚚|👨‍🍳/g, ' ').trim().toLowerCase()
-    .replace(/[أإآ]/g, 'ا').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-}
-
-// ==========================================
-// 1. المنيو النصي الاحترافي (Text Menu)
-// ==========================================
 function buildTextMenu() {
   return `🍽️ *منيو مطبخ اليوم المركزي* 🍽️
 نطبخ بحب.. ونَفَس ست البيت 🌿
 
 ⭐ *الأطباق الأكثر مبيعاً:* (مقلوبة، محاشي، مسخن، مفتول)
 
-🍗 *أطباق الدجاج* (مقلوبة، منسف، كبسة، مسخن، مفتول، برياني، قدرة، أوزي، فريكة)
-*الأسعار:* نص دجاجة: 8 د.أ
-دجاجة: 15 د.أ
-دجاجتين: 25 د.أ
-3 دجاجات: 35 د.أ
+🍗 *أطباق الدجاج* *الأسعار:* نص دجاجة: 8 د.أ | دجاجة: 15 د.أ | دجاجتين: 25 د.أ | 3 دجاجات: 35 د.أ
 🎁 *ضيافة المطبخ:* علبة (خيار بلبن/دقوس/صوص) مجاناً مع كل نص دجاجة.
 
 🥩 *أطباق اللحوم (بلدي وروماني)*
-(تباع بالكيلو، متوفر خرفان كاملة للولائم)
-*الأسعار:* لحم روماني: 20 د.أ / كيلو
-لحم بلدي: 25 د.أ / كيلو
-🎁 *ضيافة المطبخ:* علبة خيار بلبن مجاناً مع كل نص كيلو، والجميد للمنسف.
+*الأسعار:* لحم روماني: 20 د.أ/كيلو | لحم بلدي: 25 د.أ/كيلو
+🎁 *ضيافة المطبخ:* علبة خيار بلبن مجاناً مع كل نص كيلو.
 
 🥬 *المحاشي* 🎁 *ضيافة المطبخ:* علبة خيار بلبن مجاناً مع كل نص كيلو.
-- ورق عنب: 13 د.أ/كغم
-- يالنجي: 12 د.أ/كغم
-- ملفوف، كوسا، بيتنجان: 8 د.أ/كغم
+- ورق عنب: 13 د.أ/كغم | يالنجي: 12 د.أ/كغم | ملفوف وكوسا: 8 د.أ/كغم
 
 🍛 *الطبخات البيتية* (16 د.أ للطلب)
-(ملوخية، كفتة، باميا، فاصوليا، شيخ المخشي، شيشبرك، كبة لبنية، كباب هندي)
+(ملوخية، كفتة، باميا، فاصوليا، شيخ المخشي، شيشبرك)
 
 🥗 *سلطات ومقبلات*
 - خيار بلبن، عربية، فتوش، جرجير: 2 د.أ
@@ -97,21 +76,15 @@ function buildTextMenu() {
 للبدء بالطلب، اضغطوا على "اطلب الآن" بالأسفل 👇`;
 }
 
-// ==========================================
-// 2. الحساب الذكي للضيافة (Dynamic Freebies)
-// ==========================================
 function getFreebiesText(item, qty) {
   const name = String(item.displayNameAr || item.item_name_ar || '').toLowerCase();
   const portions = Math.floor(Number(qty) / 0.5); 
-  
   if (portions < 1 && !name.includes('منسف')) return '';
-  
-  if (name.includes('كبسة')) return `🎁 ضيافة المطبخ: ${portions} علبة دقوس حار 🌶️`;
-  if (name.includes('منسف')) return `🎁 ضيافة المطبخ: تشريبة جميد أصيل 🍲`;
-  if (name.includes('مفتول')) return `🎁 ضيافة المطبخ: ${portions} علبة صوص 🥣`;
-  
+  if (name.includes('كبسة')) return `🎁 ضيافة: ${portions} علبة دقوس 🌶️`;
+  if (name.includes('منسف')) return `🎁 ضيافة: تشريبة جميد أصيل 🍲`;
+  if (name.includes('مفتول')) return `🎁 ضيافة: ${portions} علبة صوص 🥣`;
   if (name.includes('مقلوبة') || name.includes('مسخن') || name.includes('عنب') || name.includes('كوسا') || name.includes('ملفوف') || name.includes('بيتنجان') || name.includes('يالنجي') || name.includes('فريكة') || name.includes('قدرة') || name.includes('برياني') || name.includes('اوزي') || name.includes('لحم')) {
-    return `🎁 ضيافة المطبخ: ${portions} علبة سلطة خيار بلبن 🥗`;
+    return `🎁 ضيافة: ${portions} علبة سلطة خيار بلبن 🥗`;
   }
   return '';
 }
@@ -157,67 +130,59 @@ function vegOptionsButtons(itemId) {
 }
 
 function sauceOptionsButtons(itemId) {
-  return { type: 'button', body: 'المفتول بده صوص يكمل طعمه! 😋\nشو بتفضلوا نوع الصوص؟', buttons: [{ id: `opt_sauce:${itemId}:بندورة`, title: 'صوص بندورة 🍅' }, { id: `opt_sauce:${itemId}:اوريجنال`, title: 'صوص أوريجنال (أبيض)' }] };
+  return { type: 'button', body: 'المفتول بده صوص يكمل طعمه! 😋\nشو بتفضلوا نوع الصوص؟', buttons: [{ id: `opt_sauce:${itemId}:بندورة`, title: 'صوص بندورة 🍅' }, { id: `opt_sauce:${itemId}:اوريجنال`, title: 'صوص أبيض' }] };
 }
 
 function itemListGrouped(rootDir, filters = {}, page = 0) {
   const items = getItemsForRoot(rootDir, filters);
   const groupedMap = new Map();
-  
   for (const item of items) {
     const name = String(item.item_name_ar || item.display_name_ar).trim();
     if (!groupedMap.has(name)) groupedMap.set(name, []);
     groupedMap.get(name).push(item);
   }
-  
   let groupedArray = Array.from(groupedMap.entries());
-
   const BEST_SELLERS = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'];
-
   groupedArray.sort(([nameA], [nameB]) => {
     const indexA = BEST_SELLERS.findIndex(b => nameA.includes(b));
     const indexB = BEST_SELLERS.findIndex(b => nameB.includes(b));
     if (indexA !== -1 && indexB === -1) return -1;
     if (indexA === -1 && indexB !== -1) return 1;
-    if (indexA !== -1 && indexB !== -1) return indexA - indexB; 
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
     return 0; 
   });
   
-  const rows = paginateRows(groupedArray.map(([name, groupItems]) => {
+  const start = page * 9; const subset = groupedArray.slice(start, start + 9);
+  const rows = subset.map(([name, groupItems]) => {
     const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
     const isBestSeller = BEST_SELLERS.some(b => name.includes(b));
-    const titleLabel = isBestSeller ? `⭐ ${name}` : name;
+    return { id: `base_item:${name}`, title: shortButton(isBestSeller ? `⭐ ${name}` : name, 24), description: `الأسعار تبدأ من ${money(minPrice)}` };
+  });
+  if (start + 9 < groupedArray.length) rows.push({ id: `items_page:${page + 1}`, title: 'عرض المزيد ⬇️', description: 'خيارات إضافية' });
 
-    return {
-      id: `base_item:${name}`,
-      title: shortButton(titleLabel),
-      description: `الأسعار تبدأ من ${money(minPrice)}`
-    };
-  }), page, 9, nextPage => `items_page:${nextPage}`);
-  
-  return listMessage('تصفحوا أطباقنا البيتية اللي بتفتح النفس 🌿\nولما يعجبكم طبق اضغطوا عليه لترتيب الطلب.', 'تصفح الأطباق 🍲', 'الأطباق المتاحة', rows);
+  return { type: 'list', body: 'تصفحوا أطباقنا البيتية اللي بتفتح النفس 🌿\nولما يعجبكم طبق اضغطوا عليه.', buttonText: 'تصفح الأطباق 🍲', sections: [{ title: 'الأطباق المتاحة', rows }] };
 }
 
 function chickenQuantityList(item, selectedOption = '') {
   const optText = selectedOption ? ` (${selectedOption})` : '';
   const rows = [
-    { id: `qty_chk:${item.record_id}:0.5:8`, title: 'نصف دجاجة - 8 د.أ', description: 'شامل ضيافة المطبخ' },
-    { id: `qty_chk:${item.record_id}:1:15`, title: 'دجاجة كاملة - 15 د.أ', description: 'شامل ضيافة المطبخ' },
-    { id: `qty_chk:${item.record_id}:2:25`, title: 'دجاجتين - 25 د.أ', description: 'شامل ضيافة المطبخ' },
-    { id: `qty_chk:${item.record_id}:3:35`, title: '3 دجاجات - 35 د.أ', description: 'شامل ضيافة المطبخ' },
-    { id: `manual_qty:${item.record_id}`, title: 'كمية مخصصة ✍️', description: 'مثال: 1.5، أو نص طلب' }
+    { id: `qty_chk:${item.record_id}:0.5:8`, title: 'نصف دجاجة', description: '8 د.أ (شامل الضيافة)' },
+    { id: `qty_chk:${item.record_id}:1:15`, title: 'دجاجة كاملة', description: '15 د.أ (شامل الضيافة)' },
+    { id: `qty_chk:${item.record_id}:2:25`, title: 'دجاجتين', description: '25 د.أ (شامل الضيافة)' },
+    { id: `qty_chk:${item.record_id}:3:35`, title: '3 دجاجات', description: '35 د.أ (شامل الضيافة)' },
+    { id: `manual_qty:${item.record_id}`, title: 'إدخال يدوي ✍️', description: 'مثال: 1.5، أو نص طلب' }
   ];
-  return { type: 'list', body: `يا سلام على ${item.display_name_ar}${optText}! 🥘\nكم الكمية اللي بتناسبكم؟\n*(الأسعار ثابتة وشاملة الإضافات المجانية)*`, buttonText: 'اختاروا الكمية', sections: [{ title: 'الأحجام والأسعار', rows }] };
+  return { type: 'list', body: `يا سلام على ${item.display_name_ar}${optText}! 🥘\nكم الكمية اللي بتناسبكم؟`, buttonText: 'اختاروا الكمية', sections: [{ title: 'الأحجام والأسعار', rows }] };
 }
 
 function meatQuantityList(item) {
   const isBaladi = item.record_id.includes('BAL') || String(item.category_ar).includes('بلدي');
   const pricePerKg = isBaladi ? 25 : 20;
   const rows = [
-    { id: `qty_met:${item.record_id}:0.5:${pricePerKg * 0.5}`, title: `نصف كيلو - ${pricePerKg * 0.5} د.أ`, description: 'شامل ضيافة المطبخ' },
-    { id: `qty_met:${item.record_id}:1:${pricePerKg}`, title: `كيلو - ${pricePerKg} د.أ`, description: 'شامل ضيافة المطبخ' },
-    { id: `qty_met:${item.record_id}:2:${pricePerKg * 2}`, title: `2 كيلو - ${pricePerKg * 2} د.أ`, description: 'شامل ضيافة المطبخ' },
-    { id: `manual_qty_met:${item.record_id}`, title: 'وزن مخصص (إدخال يدوي) ✍️', description: 'مثال: 1.5 كيلو' }
+    { id: `qty_met:${item.record_id}:0.5:${pricePerKg * 0.5}`, title: 'نصف كيلو', description: `${pricePerKg * 0.5} د.أ (شامل الضيافة)` },
+    { id: `qty_met:${item.record_id}:1:${pricePerKg}`, title: 'كيلو كامل', description: `${pricePerKg} د.أ (شامل الضيافة)` },
+    { id: `qty_met:${item.record_id}:2:${pricePerKg * 2}`, title: '2 كيلو', description: `${pricePerKg * 2} د.أ (شامل الضيافة)` },
+    { id: `manual_qty_met:${item.record_id}`, title: 'إدخال يدوي ✍️', description: 'مثال: 1.5 كيلو' }
   ];
   return { type: 'list', body: `اختياركم نخب! ${item.display_name_ar} 🥩\nكم كيلو بتحبوا نجهزلكم؟`, buttonText: 'اختاروا الوزن', sections: [{ title: 'الأوزان والأسعار', rows }] };
 }
@@ -233,55 +198,64 @@ function cartSummary(cart = []) {
 
 function cartButtons(summaryText) {
   return {
-    type: 'button', body: `${summaryText}\n\n💡 نصيحة ست البيت: السفرة ما بتكمل بدون مقبلات وسلطات إضافية! حابين تضيفوا شيء ولا نكمل الطلب؟`,
+    type: 'button', body: `${summaryText}\n\n💡 نصيحة: السفرة ما بتكمل بدون مقبلات وسلطات إضافية! حابين تضيفوا شيء ولا نكمل الطلب؟`,
     buttons: [{ id: BUTTON_IDS.CHECKOUT, title: 'اعتماد ومتابعة ✅' }, { id: BUTTON_IDS.ADD_MORE, title: 'إضافة أصناف 🥗' }, { id: BUTTON_IDS.CANCEL_ORDER, title: 'إلغاء الطلب ❌' }]
   };
 }
 
-function buildLocationText(message) {
-  const { latitude, longitude, name, address } = message.location || {};
-  const parts = [];
-  if (name) parts.push(name);
-  if (address) parts.push(address);
-  if (latitude && longitude) parts.push(`https://maps.google.com/?q=${latitude},${longitude}`);
-  return parts.join(' — ');
-}
-
-function paginateRows(rows, page = 0, pageSize = 9, moreIdFactory = () => '') {
-  const start = page * pageSize; const subset = rows.slice(start, start + pageSize);
-  if (start + pageSize < rows.length) subset.push({ id: moreIdFactory(page + 1), title: 'عرض المزيد ⬇️', description: 'خيارات إضافية' });
-  return subset;
-}
-
-function listMessage(body, buttonText, title, rows) {
-  return { type: 'list', body, buttonText, sections: [{ title, rows }] };
-}
-
 function adminDecisionButtons(orderId, from) {
-  return { type: 'button', body: `قرار الإدارة لطلب ${orderId}`, buttons: [{ id: `admin_approve:${orderId}:${from}`, title: 'اعتماد الطلب ✅' }, { id: `admin_reject:${orderId}:${from}`, title: 'رفض (المطبخ فل) ❌' }] };
+  return { type: 'button', body: `قرار الإدارة لطلب ${orderId}`, buttons: [{ id: `admin_approve:${orderId}:${from}`, title: 'اعتماد الطلب ✅' }, { id: `admin_reject:${orderId}:${from}`, title: 'رفض ❌' }] };
 }
 
 // ==========================================
-// 4. المحرك الأساسي (Webhook)
+// 4. المحرك الأساسي لإرسال رسائل الواتساب 
 // ==========================================
+// 🟢 تم حل مشكلة توقف البوت بإعادة دالة التهيئة (Normalizer) 
+function normalizeInteractivePayload(interactive) {
+  if (interactive.type === 'button') {
+    return {
+      type: 'button', body: { text: String(interactive.body || '').slice(0, 1024) },
+      action: { buttons: (interactive.buttons || []).slice(0, 3).map(b => ({ type: 'reply', reply: { id: String(b.id || '').slice(0, 256), title: shortButton(b.title || '') } })) }
+    };
+  }
+  if (interactive.type === 'list') {
+    return {
+      type: 'list', body: { text: String(interactive.body || '').slice(0, 1024) },
+      action: {
+        button: shortButton(interactive.buttonText || 'عرض الخيارات', 20),
+        sections: (interactive.sections || []).slice(0, 10).map(s => ({
+          title: shortButton(s.title || 'الخيارات', 24),
+          rows: (s.rows || []).slice(0, 10).map(r => ({ id: String(r.id || '').slice(0, 200), title: shortButton(r.title || '', 24), description: String(r.description || '').slice(0, 72) }))
+        }))
+      }
+    };
+  }
+  throw new Error(`INTERACTIVE_TYPE_UNSUPPORTED:${interactive.type}`);
+}
+
 async function sendWhatsAppPayload(to, payload) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!phoneNumberId || !accessToken) return { skipped: true };
   const requestBody = JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, ...payload });
   const response = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: requestBody });
-  return { status: response.status, data: await response.json().catch(()=>({})) };
+  const data = await response.json().catch(()=>({}));
+  if (!response.ok) console.error('WHATSAPP_API_ERROR', { status: response.status, data, payload: JSON.parse(requestBody) });
+  return { status: response.status, data };
 }
 
 async function sendWhatsAppText(rootDir, to, body) {
   const res = await sendWhatsAppPayload(to, { type: 'text', text: { body } });
-  try { await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: 'text', text: body }); } catch(e){}
+  try { await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: 'text', text: body, payload: res.data || null }); } catch(e){}
   return res;
 }
 
 async function sendWhatsAppInteractive(rootDir, to, interactive) {
-  const res = await sendWhatsAppPayload(to, { type: 'interactive', interactive });
-  try { await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: 'interactive', text: interactive.body?.text || 'أزرار' }); } catch(e){}
+  let normalized;
+  try { normalized = normalizeInteractivePayload(interactive); } catch (e) { return sendWhatsAppText(rootDir, to, interactive?.body || 'خطأ في القائمة.'); }
+  
+  const res = await sendWhatsAppPayload(to, { type: 'interactive', interactive: normalized });
+  try { await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: `interactive_${normalized.type}`, text: normalized.body?.text || 'أزرار', payload: res.data || null }); } catch(e){}
   return res;
 }
 
@@ -373,8 +347,9 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       });
 
       const rows = groupedArray.slice(0, 9).map(([name, groupItems]) => {
+        const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
         const isBestSeller = BEST_SELLERS.some(b => name.includes(b));
-        return { id: `base_item:${name}`, title: shortButton(isBestSeller ? `⭐ ${name}` : name), description: 'اضغط لتحديد الكمية' };
+        return { id: `base_item:${name}`, title: shortButton(isBestSeller ? `⭐ ${name}` : name, 24), description: `يبدأ من ${money(minPrice)}` };
       });
 
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, { type: 'list', body: `تصفحوا ${listTitle} براحتكم 🌿`, buttonText: 'الخيارات', sections: [{ title: listTitle, rows }] }) });
@@ -395,7 +370,6 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         if (String(item.category_ar).includes('دجاج') || String(item.category_ar).includes('محاشي')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item)) });
         if (String(item.category_ar).includes('لحم')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, meatQuantityList(item)) });
         
-        // السلطات والأصناف المباشرة
         sessionData.awaiting = 'manual_input';
         await setConversationSession(rootDir, from, { current_state: 'awaiting_manual', session_data: sessionData });
         return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, from, `يا هلا، اكتبوا لنا الكمية اللي بتحتاجوها من (${item.display_name_ar}) ✍️`) });
@@ -442,7 +416,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const isMeat = String(item.category_ar).includes('لحم');
       let basePrice = 15; 
       if (isMeat) basePrice = String(item.category_ar).includes('بلدي') ? 25 : 20;
-      if (String(item.category_ar).includes('محاشي')) basePrice = item.price_1_jod || 10; // السعر التقديري للمحاشي
+      if (String(item.category_ar).includes('محاشي')) basePrice = item.price_1_jod || 10; 
       if (String(item.category_ar).includes('سلط')) basePrice = item.price_1_jod || 2;
       
       const lineBase = basePrice * parsedQty;
@@ -470,7 +444,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (selection === BUTTON_IDS.CHECKOUT) {
       sessionData.awaiting = 'address_or_location';
       await setConversationSession(rootDir, from, { current_state: 'awaiting_address', session_data: sessionData });
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, from, 'الطلب صار جاهز للاعتماد 🌿\nيا ريت تشاركونا "اللوكيشن" (Location) 📍\nأو تكتبوا لنا المحافظة والعنوان بالتفصيل 🏠.') });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, from, 'الطلب صار جاهز للاعتماد 🌿\nيا ريت تشاركونا "اللوكيشن" (Location) 📍\nأو تكتبوا لنا العنوان بالتفصيل 🏠.') });
     }
 
     if (sessionData.awaiting === 'address_or_location' && (type === 'location' || type === 'text')) {
@@ -496,7 +470,6 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true });
     }
 
-    // --- أزرار الإدارة ---
     if (selection && selection.startsWith('admin_')) {
       const [action, orderId, customerPhone] = selection.split(':');
       if (action === 'admin_approve') {
