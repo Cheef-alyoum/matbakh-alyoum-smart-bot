@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import { parseBody, json, normalizePhone, slugify } from '../utils/core.js';
 import { getDeliveryGroupByKey, getDeliveryGroupList, getDeliveryZoneById } from './delivery.service.js';
-import { getMenuItemById, getItemsForRoot, getDisplayUnit } from './menu.service.js';
+import { getMenuItemById, getDisplayUnit, getMenuData } from './menu.service.js';
 import { getActiveAdminPhones, getAdminProfile, isAdminAuthorized, profileCan } from './admin-role.service.js';
 import { createOrder, generateNextOrderCode, getConversationSession, getCustomerProfileSummary, getLatestOpenOrderByPhone, getOrderById, getOrderItems, saveIncomingMessage, saveOutgoingMessage, setConversationSession, updateOrderStatus, upsertCustomer } from './storage.service.js';
 
+// --- معرفات الأزرار ---
 const BUTTON_IDS = {
   START_ORDER: 'start_order', SHOW_MENU_IMG: 'show_menu_img', SHOW_MENU: 'show_menu', HUMAN: 'human_agent',
   ORDER_TODAY: 'order_today', ORDER_FUTURE: 'order_future',
@@ -14,6 +15,7 @@ const BUTTON_IDS = {
   ADMIN_PREPARING: 'admin_prep', ADMIN_READY: 'admin_ready', ADMIN_OUT: 'admin_out', ADMIN_DELIVERED: 'admin_del', ADMIN_FAILED: 'admin_failed'
 };
 
+const TRACK_TERMS = /(حاله|حالة|متابعه|متابعة|track|tracking|status|طلبي|الطلب|وين طلبي|وين الطلب|طلبي وين)/i;
 const INCOMING_MESSAGE_CACHE = new Map();
 const INCOMING_MESSAGE_TTL_MS = 10 * 60 * 1000;
 
@@ -89,9 +91,6 @@ function getFreebiesText(item, qty) {
   return '';
 }
 
-// ==========================================
-// 3. واجهات العميل (UX)
-// ==========================================
 function welcomeButtons(returning = false) {
   return {
     type: 'button',
@@ -131,36 +130,6 @@ function vegOptionsButtons(itemId) {
 
 function sauceOptionsButtons(itemId) {
   return { type: 'button', body: 'المفتول بده صوص يكمل طعمه! 😋\nشو بتفضلوا نوع الصوص؟', buttons: [{ id: `opt_sauce:${itemId}:بندورة`, title: 'صوص بندورة 🍅' }, { id: `opt_sauce:${itemId}:اوريجنال`, title: 'صوص أبيض' }] };
-}
-
-function itemListGrouped(rootDir, filters = {}, page = 0) {
-  const items = getItemsForRoot(rootDir, filters);
-  const groupedMap = new Map();
-  for (const item of items) {
-    const name = String(item.item_name_ar || item.display_name_ar).trim();
-    if (!groupedMap.has(name)) groupedMap.set(name, []);
-    groupedMap.get(name).push(item);
-  }
-  let groupedArray = Array.from(groupedMap.entries());
-  const BEST_SELLERS = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'];
-  groupedArray.sort(([nameA], [nameB]) => {
-    const indexA = BEST_SELLERS.findIndex(b => nameA.includes(b));
-    const indexB = BEST_SELLERS.findIndex(b => nameB.includes(b));
-    if (indexA !== -1 && indexB === -1) return -1;
-    if (indexA === -1 && indexB !== -1) return 1;
-    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-    return 0; 
-  });
-  
-  const start = page * 9; const subset = groupedArray.slice(start, start + 9);
-  const rows = subset.map(([name, groupItems]) => {
-    const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
-    const isBestSeller = BEST_SELLERS.some(b => name.includes(b));
-    return { id: `base_item:${name}`, title: shortButton(isBestSeller ? `⭐ ${name}` : name, 24), description: `الأسعار تبدأ من ${money(minPrice)}` };
-  });
-  if (start + 9 < groupedArray.length) rows.push({ id: `items_page:${page + 1}`, title: 'عرض المزيد ⬇️', description: 'خيارات إضافية' });
-
-  return { type: 'list', body: 'تصفحوا أطباقنا البيتية اللي بتفتح النفس 🌿\nولما يعجبكم طبق اضغطوا عليه.', buttonText: 'تصفح الأطباق 🍲', sections: [{ title: 'الأطباق المتاحة', rows }] };
 }
 
 function chickenQuantityList(item, selectedOption = '') {
@@ -207,10 +176,6 @@ function adminDecisionButtons(orderId, from) {
   return { type: 'button', body: `قرار الإدارة لطلب ${orderId}`, buttons: [{ id: `admin_approve:${orderId}:${from}`, title: 'اعتماد الطلب ✅' }, { id: `admin_reject:${orderId}:${from}`, title: 'رفض ❌' }] };
 }
 
-// ==========================================
-// 4. المحرك الأساسي لإرسال رسائل الواتساب 
-// ==========================================
-// 🟢 تم حل مشكلة توقف البوت بإعادة دالة التهيئة (Normalizer) 
 function normalizeInteractivePayload(interactive) {
   if (interactive.type === 'button') {
     return {
@@ -287,7 +252,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, welcomeButtons()) });
     }
 
-    // عرض المنيو (نصياً)
+    // عرض المنيو
     if (selection === BUTTON_IDS.SHOW_MENU_IMG || selection === BUTTON_IDS.SHOW_MENU || text.includes('منيو')) {
       await sendWhatsAppText(rootDir, from, buildTextMenu());
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, welcomeButtons(true)) });
@@ -316,59 +281,42 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, mainCategoriesList()) });
     }
 
-    // تصفح الأقسام
+    // تصفح الأقسام (تحديث الفلتر)
     if ([BUTTON_IDS.CAT_CHICKEN, BUTTON_IDS.CAT_MEAT_BAL, BUTTON_IDS.CAT_MEAT_ROM, BUTTON_IDS.CAT_SALADS, BUTTON_IDS.CAT_MAHASHI].includes(selection)) {
-      const allItems = getItemsForRoot(rootDir, {}); 
+      const allItems = await getMenuData(rootDir).filter(i => i.menu_root !== 'modifiers'); 
       let filteredItems = []; let listTitle = '';
 
-      if (selection === BUTTON_IDS.CAT_CHICKEN) { filteredItems = allItems.filter(i => String(i.category_ar).includes('دجاج') || i.menu_root === 'chicken'); listTitle = 'أطباق الدجاج'; }
-      if (selection === BUTTON_IDS.CAT_MEAT_BAL) { filteredItems = allItems.filter(i => String(i.category_ar).includes('بلدي') || i.menu_root === 'meat_baladi'); listTitle = 'لحم بلدي'; }
-      if (selection === BUTTON_IDS.CAT_MEAT_ROM) { filteredItems = allItems.filter(i => String(i.category_ar).includes('رومان') || i.menu_root === 'meat_romani'); listTitle = 'لحم روماني'; }
-      if (selection === BUTTON_IDS.CAT_MAHASHI) { filteredItems = allItems.filter(i => String(i.category_ar).includes('محاشي') || String(i.item_name_ar).match(/عنب|ملفوف|كوسا|يالنجي/)); listTitle = 'المحاشي'; }
-      if (selection === BUTTON_IDS.CAT_SALADS) { filteredItems = allItems.filter(i => String(i.category_ar).includes('سلط') || i.menu_root === 'salads'); listTitle = 'سلطات'; }
+      if (selection === BUTTON_IDS.CAT_CHICKEN) { filteredItems = allItems.filter(i => i.menu_root === 'chicken'); listTitle = 'أطباق الدجاج'; }
+      if (selection === BUTTON_IDS.CAT_MEAT_BAL) { filteredItems = allItems.filter(i => i.menu_root === 'meat_baladi'); listTitle = 'لحم بلدي'; }
+      if (selection === BUTTON_IDS.CAT_MEAT_ROM) { filteredItems = allItems.filter(i => i.menu_root === 'meat_romani'); listTitle = 'لحم روماني'; }
+      if (selection === BUTTON_IDS.CAT_MAHASHI) { filteredItems = allItems.filter(i => i.menu_root === 'mahashi'); listTitle = 'المحاشي'; }
+      if (selection === BUTTON_IDS.CAT_SALADS) { filteredItems = allItems.filter(i => i.menu_root === 'salads'); listTitle = 'سلطات'; }
 
       await setConversationSession(rootDir, from, { current_state: 'selecting_item', session_data: sessionData });
       
-      const groupedMap = new Map();
-      for (const item of filteredItems) {
-        const name = String(item.item_name_ar || item.display_name_ar).trim();
-        if (!groupedMap.has(name)) groupedMap.set(name, []);
-        groupedMap.get(name).push(item);
-      }
-      let groupedArray = Array.from(groupedMap.entries());
-      const BEST_SELLERS = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'];
-      groupedArray.sort(([nameA], [nameB]) => {
-        const indexA = BEST_SELLERS.findIndex(b => nameA.includes(b));
-        const indexB = BEST_SELLERS.findIndex(b => nameB.includes(b));
-        if (indexA !== -1 && indexB === -1) return -1;
-        if (indexA === -1 && indexB !== -1) return 1;
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        return 0;
+      const rows = filteredItems.map(i => {
+        const isBestSeller = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'].some(b => String(i.item_name_ar).includes(b));
+        const priceText = i.price_1_jod ? `يبدأ من ${money(i.price_1_jod)}` : 'اضغط لمعرفة الأحجام';
+        return { id: `base_item:${i.record_id}`, title: shortButton(isBestSeller ? `⭐ ${i.display_name_ar}` : i.display_name_ar, 24), description: priceText };
       });
 
-      const rows = groupedArray.slice(0, 9).map(([name, groupItems]) => {
-        const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
-        const isBestSeller = BEST_SELLERS.some(b => name.includes(b));
-        return { id: `base_item:${name}`, title: shortButton(isBestSeller ? `⭐ ${name}` : name, 24), description: `يبدأ من ${money(minPrice)}` };
-      });
-
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, { type: 'list', body: `تصفحوا ${listTitle} براحتكم 🌿`, buttonText: 'الخيارات', sections: [{ title: listTitle, rows }] }) });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, { type: 'list', body: `تصفحوا ${listTitle} براحتكم 🌿`, buttonText: 'الخيارات', sections: [{ title: listTitle, rows: rows.slice(0, 10) }] }) });
     }
 
     if (selection.startsWith('base_item:')) {
-      const baseName = selection.split(':')[1];
-      const allItems = getItemsForRoot(rootDir, {}).filter(i => (i.item_name_ar || i.display_name_ar) === baseName);
+      const itemId = selection.split(':')[1];
+      const allItems = await getMenuData(rootDir);
+      const item = allItems.find(i => i.record_id === itemId);
       
-      if (allItems.length > 0) {
-        const item = allItems[0];
+      if (item) {
         sessionData.pendingItemId = item.record_id;
         await setConversationSession(rootDir, from, { current_state: 'item_options', session_data: sessionData });
 
         if (String(item.display_name_ar).includes('مقلوبة')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, vegOptionsButtons(item.record_id)) });
         if (String(item.display_name_ar).includes('مفتول')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, sauceOptionsButtons(item.record_id)) });
         
-        if (String(item.category_ar).includes('دجاج') || String(item.category_ar).includes('محاشي')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item)) });
-        if (String(item.category_ar).includes('لحم')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, meatQuantityList(item)) });
+        if (item.menu_root === 'chicken' || item.menu_root === 'mahashi') return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item)) });
+        if (item.menu_root.includes('meat')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, meatQuantityList(item)) });
         
         sessionData.awaiting = 'manual_input';
         await setConversationSession(rootDir, from, { current_state: 'awaiting_manual', session_data: sessionData });
@@ -378,7 +326,8 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     if (selection.startsWith('opt_veg:') || selection.startsWith('opt_sauce:')) {
       const [, , itemId, optionText] = selection.split(':');
-      const item = getMenuItemById(rootDir, itemId);
+      const allItems = await getMenuData(rootDir);
+      const item = allItems.find(i => i.record_id === itemId);
       sessionData.orderDraft.selectedOption = optionText;
       await setConversationSession(rootDir, from, { current_state: 'selecting_qty', session_data: sessionData });
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item, optionText)) });
@@ -386,7 +335,8 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     if (selection.startsWith('qty_chk:') || selection.startsWith('qty_met:')) {
       const [, itemId, qty, price] = selection.split(':');
-      const item = getMenuItemById(rootDir, itemId);
+      const allItems = await getMenuData(rootDir);
+      const item = allItems.find(i => i.record_id === itemId);
       const optText = sessionData.orderDraft.selectedOption ? ` (${sessionData.orderDraft.selectedOption})` : '';
 
       sessionData.cart.push({
@@ -406,18 +356,19 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     }
 
     if (sessionData.awaiting === 'manual_input' && type === 'text') {
-      const item = getMenuItemById(rootDir, sessionData.pendingItemId);
+      const allItems = await getMenuData(rootDir);
+      const item = allItems.find(i => i.record_id === sessionData.pendingItemId);
       if (!item) return json(res, 200, { ok: true });
 
       const textClean = text.replace(/نصف|نص/g, '0.5').replace(/ربع/g, '0.25').trim();
       let parsedQty = parseFloat(textClean);
       if (isNaN(parsedQty) || parsedQty <= 0) parsedQty = 1; 
 
-      const isMeat = String(item.category_ar).includes('لحم');
+      const isMeat = item.menu_root.includes('meat');
       let basePrice = 15; 
-      if (isMeat) basePrice = String(item.category_ar).includes('بلدي') ? 25 : 20;
-      if (String(item.category_ar).includes('محاشي')) basePrice = item.price_1_jod || 10; 
-      if (String(item.category_ar).includes('سلط')) basePrice = item.price_1_jod || 2;
+      if (isMeat) basePrice = item.menu_root.includes('baladi') ? 25 : 20;
+      if (item.menu_root === 'mahashi') basePrice = item.price_1_jod || 10; 
+      if (item.menu_root === 'salads') basePrice = item.price_1_jod || 2;
       
       const lineBase = basePrice * parsedQty;
       const optText = sessionData.orderDraft.selectedOption ? ` (${sessionData.orderDraft.selectedOption})` : '';
@@ -473,7 +424,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (selection && selection.startsWith('admin_')) {
       const [action, orderId, customerPhone] = selection.split(':');
       if (action === 'admin_approve') {
-        await sendWhatsAppText(rootDir, customerPhone, `توكلنا على الله، تم اعتماد طلبكم ${orderId} 👨‍🍳🔥\nهل ترغبون بالاستمرار، أو التعديل، أو الإلغاء قبل بدء التحضير؟`);
+        await sendWhatsAppText(rootDir, customerPhone, `توكلنا على الله، تم اعتماد طلبكم ${orderId} 👨‍🍳🔥\nيتم الآن التجهيز.`);
         await sendWhatsAppInteractive(rootDir, from, { type: 'button', body: `تم تأكيد ${orderId}. تحديث الحالة للعميل:`, buttons: [{ id: `admin_prep:${orderId}:${customerPhone}`, title: 'بدء التحضير 🍳' }, { id: `admin_ready:${orderId}:${customerPhone}`, title: 'الطلب جاهز 📦' }] });
       }
       else if (action === 'admin_reject') {
@@ -485,16 +436,12 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         await sendWhatsAppInteractive(rootDir, from, { type: 'button', body: `الطلب ${orderId} قيد التحضير. الخطوة القادمة:`, buttons: [{ id: `admin_out:${orderId}:${customerPhone}`, title: 'خرج للتوصيل 🚚' }] });
       }
       else if (action === 'admin_out') {
-        await sendWhatsAppText(rootDir, customerPhone, `المندوب بالطريق لكم 🚚\nطلبكم ${orderId} طلع من المطبخ، جهزوا السفرة الأكل السخن واصلكم قريب!`);
+        await sendWhatsAppText(rootDir, customerPhone, `المندوب بالطريق لكم 🚚\nطلبكم ${orderId} طلع من المطبخ، الأكل السخن واصلكم قريب!`);
         await sendWhatsAppInteractive(rootDir, from, { type: 'button', body: `الطلب ${orderId} بالطريق. التحديث النهائي:`, buttons: [{ id: `admin_del:${orderId}:${customerPhone}`, title: 'تم التسليم ✅' }, { id: `admin_failed:${orderId}:${customerPhone}`, title: 'عالق/لم يستلم ⚠️' }] });
       }
       else if (action === 'admin_del') {
         await sendWhatsAppText(rootDir, customerPhone, `ألف صحة وهنا على قلوبكم ✅\nنتمنى تكون الأكلات بيضت وجهكم. شاركونا رأيكم ولا تنسونا بطلباتكم الجاية 🌿`);
         await sendWhatsAppText(rootDir, from, `تم إغلاق الطلب ${orderId} بنجاح.`);
-      }
-      else if (action === 'admin_failed') {
-        await sendWhatsAppText(rootDir, customerPhone, `مرحباً، حاول المندوب تسليم طلبكم ${orderId} ولكن يبدو أن هناك مشكلة بالتواصل. يرجى الرد هنا فوراً ⚠️.`);
-        await sendWhatsAppText(rootDir, from, `تم تسجيل الطلب كعالق.`);
       }
       return json(res, 200, { ok: true });
     }
