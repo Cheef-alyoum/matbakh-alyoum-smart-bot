@@ -1,23 +1,20 @@
 import crypto from 'node:crypto';
 import { parseBody, json, normalizePhone, slugify } from '../utils/core.js';
 import { getDeliveryGroupByKey, getDeliveryGroupList, getDeliveryZoneById } from './delivery.service.js';
-import { getMenuItemById, getDisplayUnit, getMenuData } from './menu.service.js';
+import { getMenuItemById, getItemsForRoot, getDisplayUnit, getMenuData } from './menu.service.js';
 import { getActiveAdminPhones, getAdminProfile, isAdminAuthorized, profileCan } from './admin-role.service.js';
 import { createOrder, generateNextOrderCode, getConversationSession, getCustomerProfileSummary, getLatestOpenOrderByPhone, getOrderById, getOrderItems, saveIncomingMessage, saveOutgoingMessage, setConversationSession, updateOrderStatus, upsertCustomer } from './storage.service.js';
 
-// --- معرفات الأزرار ---
 const BUTTON_IDS = {
   START_ORDER: 'start_order', SHOW_MENU_IMG: 'show_menu_img', SHOW_MENU: 'show_menu', HUMAN: 'human_agent',
   ORDER_TODAY: 'order_today', ORDER_FUTURE: 'order_future',
-  CAT_MAHASHI: 'cat_mahashi', CAT_CHICKEN: 'cat_chicken', CAT_MEAT_ROM: 'cat_meat_rom', CAT_MEAT_BAL: 'cat_meat_bal', CAT_SALADS: 'cat_salads',
+  CAT_MAHASHI: 'cat_mahashi', CAT_CHICKEN: 'cat_chicken', CAT_MEAT_ROM: 'cat_meat_rom', CAT_MEAT_BAL: 'cat_meat_bal', CAT_SALADS: 'cat_salads', CAT_OTHERS: 'cat_others',
   ADD_MORE: 'cart_add_more', CHECKOUT: 'cart_checkout', CANCEL_ORDER: 'cancel_order',
   ADMIN_APPROVE: 'admin_approve', ADMIN_MODIFY: 'admin_modify', ADMIN_REJECT: 'admin_reject',
   ADMIN_PREPARING: 'admin_prep', ADMIN_READY: 'admin_ready', ADMIN_OUT: 'admin_out', ADMIN_DELIVERED: 'admin_del', ADMIN_FAILED: 'admin_failed'
 };
 
-const TRACK_TERMS = /(حاله|حالة|متابعه|متابعة|track|tracking|status|طلبي|الطلب|وين طلبي|وين الطلب|طلبي وين)/i;
 const INCOMING_MESSAGE_CACHE = new Map();
-const INCOMING_MESSAGE_TTL_MS = 10 * 60 * 1000;
 
 function getSafeHost(req) { return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000'; }
 function nowIso() { return new Date().toISOString(); }
@@ -31,7 +28,7 @@ export function whatsappVerify(req, res) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end(url.searchParams.get('hub.challenge'));
   }
-  return json(res, 403, { ok: false, message: 'فشل التحقق من Webhook.' });
+  return json(res, 403, { ok: false });
 }
 
 function isPast6PM() {
@@ -39,41 +36,35 @@ function isPast6PM() {
   return parseInt(ammanTime) >= 18;
 }
 
-function markIncomingMessageProcessed(messageId) {
-  if (!messageId) return;
-  const now = Date.now();
-  for (const [key, timestamp] of INCOMING_MESSAGE_CACHE.entries()) {
-    if (now - timestamp > INCOMING_MESSAGE_TTL_MS) INCOMING_MESSAGE_CACHE.delete(key);
-  }
-  INCOMING_MESSAGE_CACHE.set(String(messageId), now);
-}
-
 function hasIncomingMessageBeenProcessed(messageId) {
-  return messageId && INCOMING_MESSAGE_CACHE.has(String(messageId));
+  if (!messageId) return false;
+  if (INCOMING_MESSAGE_CACHE.has(String(messageId))) return true;
+  INCOMING_MESSAGE_CACHE.set(String(messageId), Date.now());
+  return false;
 }
 
+// المنيو النصي المطابق لملف الـ PDF المرفق تماماً
 function buildTextMenu() {
   return `🍽️ *منيو مطبخ اليوم المركزي* 🍽️
 نطبخ بحب.. ونَفَس ست البيت 🌿
 
-⭐ *الأطباق الأكثر مبيعاً:* (مقلوبة، محاشي، مسخن، مفتول)
+⭐ *الأطباق الرئيسية:* (متوفرة كالتالي: منسف، مقلوبة، كبسة، برياني، فريكة، قدرة، اوزي)
+🍗 *بالدجاج:* دجاجة (15 د.أ) | دجاجتين (25 د.أ) | 3 دجاجات (35 د.أ)
+🥩 *باللحم الروماني:* 20 د.أ للكيلو
+🥩 *باللحم البلدي:* 25 د.أ للكيلو
 
-🍗 *أطباق الدجاج* *الأسعار:* نص دجاجة: 8 د.أ | دجاجة: 15 د.أ | دجاجتين: 25 د.أ | 3 دجاجات: 35 د.أ
-🎁 *ضيافة المطبخ:* علبة (خيار بلبن/دقوس/صوص) مجاناً مع كل نص دجاجة.
+🍲 *أطباق أخرى:*
+- مسخن: دجاجة (15) | دجاجتين (25) | 3 دجاجات (35)
+- مفتول: دجاجة (15) | دجاجتين (25) | 3 دجاجات (35)
+- ملوخية، كفتة، باميا، فاصوليا، شيخ المخشي، شيشبرك، كبة لبنية، كباب هندي: (16 د.أ)
 
-🥩 *أطباق اللحوم (بلدي وروماني)*
-*الأسعار:* لحم روماني: 20 د.أ/كيلو | لحم بلدي: 25 د.أ/كيلو
-🎁 *ضيافة المطبخ:* علبة خيار بلبن مجاناً مع كل نص كيلو.
+🥬 *المحاشي (للكيلو):*
+- ورق عنب (13 د.أ) | يالنجي (12 د.أ)
+- ملفوف (8 د.أ) | كوسا (8 د.أ) | بيتنجان (8 د.أ)
 
-🥬 *المحاشي* 🎁 *ضيافة المطبخ:* علبة خيار بلبن مجاناً مع كل نص كيلو.
-- ورق عنب: 13 د.أ/كغم | يالنجي: 12 د.أ/كغم | ملفوف وكوسا: 8 د.أ/كغم
-
-🍛 *الطبخات البيتية* (16 د.أ للطلب)
-(ملوخية، كفتة، باميا، فاصوليا، شيخ المخشي، شيشبرك)
-
-🥗 *سلطات ومقبلات*
-- خيار بلبن، عربية، فتوش، جرجير: 2 د.أ
-- تبولة، معكرونة، بوملي: 4 د.أ
+🥗 *السلطات:*
+- خيار بلبن، عربية، فتوش، جرجير: (2 د.أ)
+- تبولة، معكرونة، بوملي: (4 د.أ)
 
 للبدء بالطلب، اضغطوا على "اطلب الآن" بالأسفل 👇`;
 }
@@ -82,6 +73,7 @@ function getFreebiesText(item, qty) {
   const name = String(item.displayNameAr || item.item_name_ar || '').toLowerCase();
   const portions = Math.floor(Number(qty) / 0.5); 
   if (portions < 1 && !name.includes('منسف')) return '';
+  
   if (name.includes('كبسة')) return `🎁 ضيافة: ${portions} علبة دقوس 🌶️`;
   if (name.includes('منسف')) return `🎁 ضيافة: تشريبة جميد أصيل 🍲`;
   if (name.includes('مفتول')) return `🎁 ضيافة: ${portions} علبة صوص 🥣`;
@@ -95,11 +87,7 @@ function welcomeButtons(returning = false) {
   return {
     type: 'button',
     body: (returning ? 'يا هلا وغلا فيكم من جديد بمطبخ اليوم المركزي 🌿\nنورتونا بطلتكم! ' : 'يا هلا ومرحبا فيكم بمطبخ اليوم المركزي 🌿\nنقدم لكم أكل بيتي أصيل، مطبوخ بحب وبـ "نَفَس ست البيت". ') + 'كيف بنقدر نخدمكم اليوم؟',
-    buttons: [
-      { id: BUTTON_IDS.START_ORDER, title: 'اطلب الآن 🍲' },
-      { id: BUTTON_IDS.SHOW_MENU_IMG, title: 'تصفح المنيو 📖' },
-      { id: BUTTON_IDS.HUMAN, title: 'مساعدة موظف 👨‍🍳' }
-    ]
+    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب الآن 🍲' }, { id: BUTTON_IDS.SHOW_MENU_IMG, title: 'تصفح المنيو 📖' }, { id: BUTTON_IDS.HUMAN, title: 'مساعدة موظف 👨‍🍳' }]
   };
 }
 
@@ -115,10 +103,11 @@ function mainCategoriesList() {
   return {
     type: 'list', body: 'شو بتشتهوا اليوم من مطبخنا؟ 🌿', buttonText: 'تصفح الأقسام',
     sections: [{ title: 'الأقسام الرئيسية', rows: [
-      { id: BUTTON_IDS.CAT_MAHASHI, title: 'المحاشي (الأكثر طلباً) 🥬', description: 'دوالي، ملفوف، كوسا...' },
+      { id: BUTTON_IDS.CAT_MAHASHI, title: 'المحاشي 🥬', description: 'دوالي، ملفوف، كوسا...' },
       { id: BUTTON_IDS.CAT_CHICKEN, title: 'أطباق الدجاج 🍗', description: 'مقلوبة، مسخن، مفتول، منسف...' },
       { id: BUTTON_IDS.CAT_MEAT_BAL, title: 'لحوم بلدية 🥩', description: 'خرفان كاملة، مناسف، أوزي (بلدي)' },
       { id: BUTTON_IDS.CAT_MEAT_ROM, title: 'لحوم روماني 🍖', description: 'مناسف، قدرة، فريكة (روماني)' },
+      { id: BUTTON_IDS.CAT_OTHERS, title: 'الطبخات البيتية 🍛', description: 'ملوخية، كفتة، شيشبرك...' },
       { id: BUTTON_IDS.CAT_SALADS, title: 'سلطات ومقبلات 🥗', description: 'خيار بلبن، فتوش، تبولة...' }
     ]}]
   };
@@ -135,10 +124,10 @@ function sauceOptionsButtons(itemId) {
 function chickenQuantityList(item, selectedOption = '') {
   const optText = selectedOption ? ` (${selectedOption})` : '';
   const rows = [
-    { id: `qty_chk:${item.record_id}:0.5:8`, title: 'نصف دجاجة', description: '8 د.أ (شامل الضيافة)' },
-    { id: `qty_chk:${item.record_id}:1:15`, title: 'دجاجة كاملة', description: '15 د.أ (شامل الضيافة)' },
-    { id: `qty_chk:${item.record_id}:2:25`, title: 'دجاجتين', description: '25 د.أ (شامل الضيافة)' },
-    { id: `qty_chk:${item.record_id}:3:35`, title: '3 دجاجات', description: '35 د.أ (شامل الضيافة)' },
+    { id: `qty_chk:${item.record_id}:0.5:8`, title: 'نصف دجاجة', description: '8 د.أ (مع الضيافة)' },
+    { id: `qty_chk:${item.record_id}:1:15`, title: 'دجاجة كاملة', description: '15 د.أ (مع الضيافة)' },
+    { id: `qty_chk:${item.record_id}:2:25`, title: 'دجاجتين', description: '25 د.أ (مع الضيافة)' },
+    { id: `qty_chk:${item.record_id}:3:35`, title: '3 دجاجات', description: '35 د.أ (مع الضيافة)' },
     { id: `manual_qty:${item.record_id}`, title: 'إدخال يدوي ✍️', description: 'مثال: 1.5، أو نص طلب' }
   ];
   return { type: 'list', body: `يا سلام على ${item.display_name_ar}${optText}! 🥘\nكم الكمية اللي بتناسبكم؟`, buttonText: 'اختاروا الكمية', sections: [{ title: 'الأحجام والأسعار', rows }] };
@@ -148,10 +137,10 @@ function meatQuantityList(item) {
   const isBaladi = item.record_id.includes('BAL') || String(item.category_ar).includes('بلدي');
   const pricePerKg = isBaladi ? 25 : 20;
   const rows = [
-    { id: `qty_met:${item.record_id}:0.5:${pricePerKg * 0.5}`, title: 'نصف كيلو', description: `${pricePerKg * 0.5} د.أ (شامل الضيافة)` },
-    { id: `qty_met:${item.record_id}:1:${pricePerKg}`, title: 'كيلو كامل', description: `${pricePerKg} د.أ (شامل الضيافة)` },
-    { id: `qty_met:${item.record_id}:2:${pricePerKg * 2}`, title: '2 كيلو', description: `${pricePerKg * 2} د.أ (شامل الضيافة)` },
-    { id: `manual_qty_met:${item.record_id}`, title: 'إدخال يدوي ✍️', description: 'مثال: 1.5 كيلو' }
+    { id: `qty_met:${item.record_id}:0.5:${pricePerKg * 0.5}`, title: 'نصف كيلو', description: `${pricePerKg * 0.5} د.أ (مع الضيافة)` },
+    { id: `qty_met:${item.record_id}:1:${pricePerKg}`, title: 'كيلو كامل', description: `${pricePerKg} د.أ (مع الضيافة)` },
+    { id: `qty_met:${item.record_id}:2:${pricePerKg * 2}`, title: '2 كيلو', description: `${pricePerKg * 2} د.أ (مع الضيافة)` },
+    { id: `manual_qty:${item.record_id}`, title: 'إدخال يدوي ✍️', description: 'مثال: 1.5 كيلو' }
   ];
   return { type: 'list', body: `اختياركم نخب! ${item.display_name_ar} 🥩\nكم كيلو بتحبوا نجهزلكم؟`, buttonText: 'اختاروا الوزن', sections: [{ title: 'الأوزان والأسعار', rows }] };
 }
@@ -218,7 +207,6 @@ async function sendWhatsAppText(rootDir, to, body) {
 async function sendWhatsAppInteractive(rootDir, to, interactive) {
   let normalized;
   try { normalized = normalizeInteractivePayload(interactive); } catch (e) { return sendWhatsAppText(rootDir, to, interactive?.body || 'خطأ في القائمة.'); }
-  
   const res = await sendWhatsAppPayload(to, { type: 'interactive', interactive: normalized });
   try { await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: `interactive_${normalized.type}`, text: normalized.body?.text || 'أزرار', payload: res.data || null }); } catch(e){}
   return res;
@@ -230,7 +218,6 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0] || null;
     if (!message) return json(res, 200, { ok: true });
     if (hasIncomingMessageBeenProcessed(message.id)) return json(res, 200, { ok: true });
-    markIncomingMessageProcessed(message.id);
 
     const from = normalizePhone(message.from || '').replace(/^\+/, '');
     const to = from; 
@@ -281,26 +268,27 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, mainCategoriesList()) });
     }
 
-    // تصفح الأقسام (تحديث الفلتر)
-    if ([BUTTON_IDS.CAT_CHICKEN, BUTTON_IDS.CAT_MEAT_BAL, BUTTON_IDS.CAT_MEAT_ROM, BUTTON_IDS.CAT_SALADS, BUTTON_IDS.CAT_MAHASHI].includes(selection)) {
-      const allItems = await getMenuData(rootDir).filter(i => i.menu_root !== 'modifiers'); 
+    // عرض الأصناف
+    if ([BUTTON_IDS.CAT_CHICKEN, BUTTON_IDS.CAT_MEAT_BAL, BUTTON_IDS.CAT_MEAT_ROM, BUTTON_IDS.CAT_SALADS, BUTTON_IDS.CAT_MAHASHI, BUTTON_IDS.CAT_OTHERS].includes(selection)) {
+      const allItems = await getMenuData(rootDir); 
       let filteredItems = []; let listTitle = '';
 
       if (selection === BUTTON_IDS.CAT_CHICKEN) { filteredItems = allItems.filter(i => i.menu_root === 'chicken'); listTitle = 'أطباق الدجاج'; }
       if (selection === BUTTON_IDS.CAT_MEAT_BAL) { filteredItems = allItems.filter(i => i.menu_root === 'meat_baladi'); listTitle = 'لحم بلدي'; }
       if (selection === BUTTON_IDS.CAT_MEAT_ROM) { filteredItems = allItems.filter(i => i.menu_root === 'meat_romani'); listTitle = 'لحم روماني'; }
       if (selection === BUTTON_IDS.CAT_MAHASHI) { filteredItems = allItems.filter(i => i.menu_root === 'mahashi'); listTitle = 'المحاشي'; }
+      if (selection === BUTTON_IDS.CAT_OTHERS) { filteredItems = allItems.filter(i => i.menu_root === 'other'); listTitle = 'الطبخات البيتية'; }
       if (selection === BUTTON_IDS.CAT_SALADS) { filteredItems = allItems.filter(i => i.menu_root === 'salads'); listTitle = 'سلطات'; }
 
       await setConversationSession(rootDir, from, { current_state: 'selecting_item', session_data: sessionData });
       
-      const rows = filteredItems.map(i => {
-        const isBestSeller = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'].some(b => String(i.item_name_ar).includes(b));
-        const priceText = i.price_1_jod ? `يبدأ من ${money(i.price_1_jod)}` : 'اضغط لمعرفة الأحجام';
-        return { id: `base_item:${i.record_id}`, title: shortButton(isBestSeller ? `⭐ ${i.display_name_ar}` : i.display_name_ar, 24), description: priceText };
+      const BEST_SELLERS = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'];
+      const rows = filteredItems.slice(0, 10).map(i => {
+        const isBestSeller = BEST_SELLERS.some(b => String(i.item_name_ar).includes(b));
+        return { id: `base_item:${i.record_id}`, title: shortButton(isBestSeller ? `⭐ ${i.display_name_ar}` : i.display_name_ar, 24), description: 'اضغط لاختيار الكمية' };
       });
 
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, { type: 'list', body: `تصفحوا ${listTitle} براحتكم 🌿`, buttonText: 'الخيارات', sections: [{ title: listTitle, rows: rows.slice(0, 10) }] }) });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, { type: 'list', body: `تصفحوا ${listTitle} براحتكم 🌿`, buttonText: 'الخيارات', sections: [{ title: listTitle, rows }] }) });
     }
 
     if (selection.startsWith('base_item:')) {
@@ -315,7 +303,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
         if (String(item.display_name_ar).includes('مقلوبة')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, vegOptionsButtons(item.record_id)) });
         if (String(item.display_name_ar).includes('مفتول')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, sauceOptionsButtons(item.record_id)) });
         
-        if (item.menu_root === 'chicken' || item.menu_root === 'mahashi') return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item)) });
+        if (item.menu_root === 'chicken') return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, chickenQuantityList(item)) });
         if (item.menu_root.includes('meat')) return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, meatQuantityList(item)) });
         
         sessionData.awaiting = 'manual_input';
@@ -339,10 +327,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const item = allItems.find(i => i.record_id === itemId);
       const optText = sessionData.orderDraft.selectedOption ? ` (${sessionData.orderDraft.selectedOption})` : '';
 
-      sessionData.cart.push({
-        id: item.record_id, displayNameAr: item.display_name_ar + optText,
-        quantity: Number(qty), lineTotalJod: Number(price)
-      });
+      sessionData.cart.push({ id: item.record_id, displayNameAr: item.display_name_ar + optText, quantity: Number(qty), lineTotalJod: Number(price) });
       await setConversationSession(rootDir, from, { current_state: 'reviewing_cart', session_data: sessionData });
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, cartButtons(cartSummary(sessionData.cart).text)) });
     }
@@ -367,16 +352,13 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const isMeat = item.menu_root.includes('meat');
       let basePrice = 15; 
       if (isMeat) basePrice = item.menu_root.includes('baladi') ? 25 : 20;
-      if (item.menu_root === 'mahashi') basePrice = item.price_1_jod || 10; 
+      if (item.menu_root === 'mahashi' || item.menu_root === 'other') basePrice = item.price_1_jod || 16; 
       if (item.menu_root === 'salads') basePrice = item.price_1_jod || 2;
       
       const lineBase = basePrice * parsedQty;
       const optText = sessionData.orderDraft.selectedOption ? ` (${sessionData.orderDraft.selectedOption})` : '';
 
-      sessionData.cart.push({
-        id: item.record_id, displayNameAr: item.display_name_ar + optText,
-        quantity: parsedQty, lineTotalJod: lineBase
-      });
+      sessionData.cart.push({ id: item.record_id, displayNameAr: item.display_name_ar + optText, quantity: parsedQty, lineTotalJod: lineBase });
       sessionData.awaiting = null;
       await setConversationSession(rootDir, from, { current_state: 'reviewing_cart', session_data: sessionData });
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, cartButtons(cartSummary(sessionData.cart).text)) });
@@ -450,6 +432,6 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     
   } catch (error) {
     console.error('WEBHOOK_FATAL_ERROR', error);
-    return json(res, 200, { ok: false, message: error.message });
+    return json(res, 200, { ok: false });
   }
 }
