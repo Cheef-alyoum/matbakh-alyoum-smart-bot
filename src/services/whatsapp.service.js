@@ -189,15 +189,13 @@ async function persistSession(rootDir, phone, session, patch = {}) {
 
 function resetDraftKeepingSession() { return { cart: [], pendingItemId: null, pendingExtras: [], awaiting: null, orderDraft: defaultDraft() }; }
 
-// --- رسائل وقوائم البوت (Sales UX - مع إصلاح أطوال الأزرار لتوافق واتساب) ---
-
 function welcomeButtons(returning = false) {
   const body = returning
     ? 'يا هلا وغلا فيكم من جديد بمطبخ اليوم المركزي 🌿\nنورتونا بطلتكم! جاهزين نجهز لكم أطيب الأكلات اللي تبيض الوجه.'
     : 'يا هلا ومرحبا فيكم بمطبخ اليوم المركزي 🌿\nنقدم لكم أكل بيتي أصيل، مطبوخ بحب وبـ "نَفَس ست البيت"، شغل نظيف ومرتب يبيض وجهكم بالعزايم والجمعات.';
   return {
     type: 'button', body: `${body}\n\nكيف بنقدر نخدمكم اليوم؟`,
-    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب الآن 🍲' }, { id: BUTTON_IDS.SHOW_MENU, title: 'تصفح الأصناف 📖' }, { id: BUTTON_IDS.HUMAN, title: 'مساعدة موظف 👨‍💻' }]
+    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب منيو اليوم 🍲' }, { id: BUTTON_IDS.SHOW_MENU, title: 'تصفح الأصناف 📖' }, { id: BUTTON_IDS.HUMAN, title: 'تواصل مع المطبخ 👨‍🍳' }]
   };
 }
 
@@ -254,6 +252,7 @@ function itemListGrouped(rootDir, filters = {}, page = 0) {
   
   const groupedArray = Array.from(groupedMap.entries());
   const rows = paginateRows(groupedArray.map(([name, groupItems]) => {
+    // حساب أقل سعر متوفر بشكل صحيح 
     const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
     return {
       id: `base_item:${name}`,
@@ -297,7 +296,7 @@ function cartSummary(cart = [], draft = {}) {
 function cartButtons(summaryText) {
   return {
     type: 'button', body: `${summaryText}\n\n💡 نصيحة ست البيت: السفرة ما بتكمل بدون مقبلات وسلطات تفتح الشهية! حابين تضيفوا شيء ولا نعتمد الطلب؟`,
-    buttons: [{ id: BUTTON_IDS.CHECKOUT, title: 'تأكيد السلة ✅' }, { id: BUTTON_IDS.ADD_MORE, title: 'إضافة أصناف 🥗' }, { id: BUTTON_IDS.CLEAR_CART, title: 'إلغاء الطلب ❌' }]
+    buttons: [{ id: BUTTON_IDS.CHECKOUT, title: 'تأكيد السلة ✅' }, { id: BUTTON_IDS.ADD_MORE, title: 'إضافة مقبلات/أصناف 🥗' }, { id: BUTTON_IDS.CLEAR_CART, title: 'إلغاء الطلب ❌' }]
   };
 }
 
@@ -371,7 +370,6 @@ function buildCustomerFinalSummary(cart = [], draft = {}) {
   ].filter(Boolean).join('\n');
 }
 
-// --- الأوامر الإدارية (Admin Logic) ---
 function adminDecisionButtons(orderId) {
   return { type: 'button', body: `إدارة الطلب ${orderId}`, buttons: [{ id: `${BUTTON_IDS.ADMIN_APPROVE}:${orderId}`, title: 'تأكيد وموافقة ✅' }, { id: `${BUTTON_IDS.ADMIN_MODIFY}:${orderId}`, title: 'تعديل' }, { id: `${BUTTON_IDS.ADMIN_REJECT}:${orderId}`, title: 'رفض' }] };
 }
@@ -486,8 +484,6 @@ function textIntent(text = '') {
   return 'text';
 }
 
-// === المعالج الرئيسي (Webhook) ===
-
 export async function processWhatsAppWebhook(rootDir, req, res, config) {
   try {
     const body = await parseBody(req);
@@ -507,20 +503,16 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     try { await saveIncomingMessage(rootDir, { id: message.id || crypto.randomUUID(), from, type, text: buildIncomingMessageLogText(message), payload: message }); } catch (error) {}
 
     const adminProfile = isAdminAuthorized(rootDir, from, config) ? getAdminProfile(rootDir, from, config) : null;
-    
-    // الأوامر الإدارية (تُترك كما هي للخصوصية)
     if (adminProfile && selection.startsWith('admin_')) {}
 
     let session = await getConversationSession(rootDir, from);
     let sessionData = readSessionData(session);
     const customerProfile = await getCustomerProfileSummary(rootDir, from);
 
-    // --- إدخال الكمية يدوياً بذكاء ---
     if (type === 'text' && sessionData.awaiting === 'manual_qty') {
       const item = getMenuItemById(rootDir, sessionData.pendingItemId);
       if (!item) return json(res, 200, { ok: true, mode: 'manual_qty_err' });
       
-      // دعم كلمة نصف أو نص كـ 0.5
       const textClean = text.replace(/نصف|نص/g, '0.5').trim();
       const parsedQty = parseFloat(textClean);
       const isNumeric = !isNaN(parsedQty) && parsedQty > 0;
@@ -598,7 +590,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (selection.startsWith('manual_qty:')) {
       const itemId = selection.split(':')[1];
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_manual_quantity', sessionData: { ...sessionData, pendingItemId: itemId, awaiting: 'manual_qty' } });
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, 'اكتبوا لنا الكمية اللي بتحتاجوها (مثلاً: 1.5 كيلو، أو نص طلب) ✍️'), mode: 'manual_qty_prompt' });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, 'اكتبوا لنا الكمية اللي بتحتاجوها (مثلاً: 1.5، أو نصف) ✍️'), mode: 'manual_qty_prompt' });
     }
 
     if (selection.startsWith('qty:')) {
@@ -704,4 +696,42 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0)), mode: 'edit_items' });
     }
 
-    // 🟢 شبكة
+    if (selection === BUTTON_IDS.CUSTOMER_CONFIRM) {
+      try {
+        const outcome = await createOrUpdateOrderFromDraft(rootDir, from, session);
+        if (outcome.error) return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `عذراً 🌿\n${outcome.error}`), mode: 'create_order_error' });
+
+        try { await notifyAdminsNewOrder(rootDir, outcome.order, config); } catch (error) { console.error('ADMIN_NOTIFY_FATAL', error); }
+        
+        return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `تم رفع طلبكم للإدارة لتأكيد الموعد والتوافر ✅\nرقم الطلب: ${outcome.order.id}\nثواني وبنأكد لكم الطلب هون، جهزوا السفرة 🌿`), mode: 'sent_to_admin' });
+      } catch (dbError) {
+        console.error('ORDER_SAVE_DB_ERROR', dbError);
+        return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `عذراً، صار خطأ تقني بسيط أثناء حفظ الطلب 🌿\nيا ريت تعيدوا الضغط على تأكيد أو تكتبوا "مساعدة موظف".`), mode: 'db_error' });
+      }
+    }
+
+    if (type === 'location' && sessionData.awaiting === 'address') {
+      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_payment', sessionData: { ...sessionData, awaiting: null, orderDraft: { ...sessionData.orderDraft, address: buildLocationText(message) } } });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, paymentButtons()), mode: 'address_location_saved' });
+    }
+
+    if (type === 'text' && sessionData.awaiting === 'address') {
+      session = await persistSession(rootDir, from, session, { currentState: 'awaiting_payment', sessionData: { ...sessionData, awaiting: null, orderDraft: { ...sessionData.orderDraft, address: text } } });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, paymentButtons()), mode: 'address_saved' });
+    }
+
+    if (type === 'text' && sessionData.awaiting === 'notes_text') {
+      session = await persistSession(rootDir, from, session, { currentState: 'review_customer_summary', sessionData: { ...sessionData, awaiting: null, orderDraft: { ...sessionData.orderDraft, notes: text } } });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, sessionData.orderDraft))), mode: 'notes_saved' });
+    }
+
+    const fallbackIntent = textIntent(text);
+    if (fallbackIntent === 'welcome') return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, welcomeButtons(customerProfile.isReturning)), mode: 'welcome_repeat' });
+    if (fallbackIntent === 'menu') return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0)), mode: 'fallback_menu' });
+    
+    return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, mainMenuButtons()), mode: 'fallback_main' });
+  } catch (error) {
+    console.error('WEBHOOK_FATAL_ERROR', error);
+    return json(res, 200, { ok: false, recovered: true, message: error.message });
+  }
+}
