@@ -103,7 +103,7 @@ function buildTextLinks(config, req) {
 
 function buildHumanContactText(links = {}) {
   const lines = ['يا هلا فيكم، يسعدنا خدمتكم 🌿'];
-  if (links.phone) lines.push(`للتواصل المباشر مع فريقنا: ${links.phone}`);
+  if (links.phone) lines.push(`للتواصل المباشر مع المطبخ: ${links.phone}`);
   if (links.whatsappUrl) lines.push(`رابط الواتساب المباشر: ${links.whatsappUrl}`);
   return lines.join('\n');
 }
@@ -119,11 +119,11 @@ function normalizeUserText(value = '') {
 }
 
 function labelFromStatus(status) {
-  return { awaiting_admin_review: 'بانتظار الاعتماد', awaiting_customer_edit: 'بانتظار التعديل', approved: 'تم الاعتماد', preparing: 'قيد التحضير', ready: 'جاهز', out_for_delivery: 'قيد التوصيل', delivered: 'تم التسليم', rejected: 'مرفوض', customer_exit: 'مغلق' }[status] || 'قيد المتابعة';
+  return { awaiting_admin_review: 'بانتظار تأكيد الإدارة', awaiting_customer_edit: 'بانتظار التعديل', approved: 'تم تأكيد الطلب', preparing: 'قيد التحضير', ready: 'جاهز', out_for_delivery: 'قيد التوصيل', delivered: 'تم التسليم', rejected: 'مرفوض', customer_exit: 'مغلق' }[status] || 'قيد المتابعة';
 }
 
 function mapPrepStatusToCustomer(status, orderId, notes = '') {
-  if (status === 'approved') return `تم اعتماد طلبكم اللي بيفتح النفس ✅\nرقم الطلب: ${orderId}\nرح نجهز لكم أطيب الأكلات بـ "نَفَس ست البيت". الدفع كاش عند الاستلام، ورح نوافيكم بالتحديثات هون.`;
+  if (status === 'approved') return `تم تأكيد طلبكم اللي بيفتح النفس ✅\nرقم الطلب: ${orderId}\nرح نجهز لكم أطيب الأكلات بـ "نَفَس ست البيت". الدفع كاش عند الاستلام، ورح نوافيكم بالتحديثات هون.`;
   if (status === 'awaiting_customer_edit') return `يا هلا فيكم، طلبكم يحتاج تعديل بسيط ليكون بأفضل صورة 🌿\n${notes ? `\nملاحظة من المطبخ: ${notes}` : ''}`;
   if (status === 'rejected') return `نعتذر منكم، ما قدرنا نعتمد الطلب الحالي 😔${notes ? `\n\n${notes}` : '\nيا ريت تتواصلوا معنا لترتيب طلب بديل يرضيكم.'}`;
   if (status === 'preparing') return `أكلكم صار على النار 👨‍🍳🔥\nرقم الطلب: ${orderId}\nقيد التحضير بكل حب وعناية.`;
@@ -182,7 +182,7 @@ async function persistSession(rootDir, phone, session, patch = {}) {
   };
   return setConversationSession(rootDir, phone, {
     currentState: patch.currentState || session?.current_state || 'welcome',
-    preferredLanguage: 'ar', consentStatus: session?.consent_status || 'pending',
+    preferredLanguage: 'ar', consentStatus: patch.consentStatus || session?.consent_status || 'pending',
     sessionData: mergedData, lastOrderId: mergedData.lastOrderId
   });
 }
@@ -197,14 +197,25 @@ function welcomeButtons(returning = false) {
     : 'يا هلا ومرحبا فيكم بمطبخ اليوم المركزي 🌿\nنقدم لكم أكل بيتي أصيل، مطبوخ بحب وبـ "نَفَس ست البيت"، شغل نظيف ومرتب يبيض وجهكم بالعزايم والجمعات.';
   return {
     type: 'button', body: `${body}\n\nكيف بنقدر نخدمكم اليوم؟`,
-    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب الآن 🍲' }, { id: BUTTON_IDS.SHOW_MENU, title: 'تصفح المنيو 📖' }, { id: BUTTON_IDS.HUMAN, title: 'تواصل مع موظف 👨‍💻' }]
+    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب منيو اليوم 🍲' }, { id: BUTTON_IDS.SHOW_MENU, title: 'تصفح الأصناف 📖' }, { id: BUTTON_IDS.HUMAN, title: 'تواصل مع المطبخ 👨‍🍳' }]
+  };
+}
+
+function consentButtons() {
+  return {
+    type: 'button',
+    body: 'نادي عروض مطبخ اليوم (VIP) 🌿\n\nحابين تكونوا أول من يعرف عن طبخاتنا اليومية وعروضنا الخاصة؟ بنرسل لكم المنيو اليومي عشان ما تحتاروا بطبخة بكرة 🥘',
+    buttons: [
+      { id: BUTTON_IDS.CONSENT_YES, title: 'أكيد، اشترك بالعروض 🎉' },
+      { id: BUTTON_IDS.CONSENT_SERVICE_ONLY, title: 'لا، للطلبات فقط 🚚' }
+    ]
   };
 }
 
 function mainMenuButtons() {
   return {
-    type: 'button', body: 'القائمة الرئيسية 🌿\nاختاروا اللي بيناسبكم، وإحنا بالخدمة خطوة بخطوة:',
-    buttons: [{ id: BUTTON_IDS.START_ORDER, title: 'اطلب الآن 🍲' }, { id: BUTTON_IDS.TRACK_ORDER, title: 'وين طلبي؟ 🚚' }, { id: BUTTON_IDS.HUMAN, title: 'تواصل مع موظف 📞' }]
+    type: 'button', body: 'القائمة الرئيسية 🌿\nتصفحوا براحتكم، وإحنا بالخدمة لأي استفسار:',
+    buttons: [{ id: BUTTON_IDS.SHOW_MENU, title: 'تصفح الأصناف 📖' }, { id: BUTTON_IDS.TRACK_ORDER, title: 'وين طلبي؟ 🚚' }, { id: BUTTON_IDS.HUMAN, title: 'مساعدة موظف 📞' }]
   };
 }
 
@@ -220,30 +231,40 @@ function listMessage(body, buttonText, title, rows) {
 
 function rootList(rootDir, page = 0) {
   const roots = getBotRoots(rootDir);
-  const rows = paginateRows(roots.map(root => ({ id: `root:${root.id}`, title: shortButton(root.title), description: `${root.description} — ${root.count} صنف` })), page, 9, nextPage => `roots_page:${nextPage}`);
-  return listMessage('تفضلوا منيو مطبخ اليوم المركزي 🌿\nاختاروا القسم المناسب، ورح نكمل معاكم خطوة بخطوة لنوصلكم أطيب أكل.', 'تصفح الأقسام 🍽️', 'الأقسام الرئيسية', rows);
+  const rows = paginateRows(roots.map(root => ({ id: `root:${root.id}`, title: shortButton(root.title), description: `${root.description}` })), page, 9, nextPage => `roots_page:${nextPage}`);
+  return listMessage('منيو مطبخ اليوم المركزي 🌿\nتصفحوا الأقسام براحتكم، ولما يعجبكم طبق اضغطوا عليه للطلب مباشرة.', 'تصفح الأقسام 🍽️', 'الأقسام الرئيسية', rows);
 }
 
 function categoryListForRoot(rootTitle, rootId, options, page) {
-  const rows = paginateRows(options.map(o => ({ id: `category:${rootId}:${slugify(o.value)}`, title: shortButton(o.label), description: `متاح ${o.count} صنف بيشهي` })), page, 9, nextPage => `category_page:${rootId}:${nextPage}`);
+  const rows = paginateRows(options.map(o => ({ id: `category:${rootId}:${slugify(o.value)}`, title: shortButton(o.label), description: `اضغط لعرض أصناف الـ ${o.label}` })), page, 9, nextPage => `category_page:${rootId}:${nextPage}`);
   return listMessage(`اختاروا التصنيف اللي على ذوقكم من قسم ${rootTitle} 🌿`, 'التصنيفات 📋', rootTitle, rows);
 }
 
-// التجميع الذكي للأصناف (لحل مشكلة التكرار)
+// 🟢 الإصلاح الجذري لمشكلة الأسعار: التجميع الذكي للأصناف وحساب أقل سعر
 function itemListGrouped(rootDir, filters = {}, page = 0) {
   const items = getItemsForRoot(rootDir, filters);
   const groupedMap = new Map();
+  
   for (const item of items) {
     const name = String(item.item_name_ar || item.display_name_ar).trim();
-    if (!groupedMap.has(name)) groupedMap.set(name, item);
+    if (!groupedMap.has(name)) {
+      groupedMap.set(name, []);
+    }
+    groupedMap.get(name).push(item);
   }
-  const groupedArray = Array.from(groupedMap.values());
-  const rows = paginateRows(groupedArray.map(item => ({
-    id: `base_item:${item.item_name_ar || item.display_name_ar}`,
-    title: shortButton(item.item_name_ar || item.display_name_ar),
-    description: `يبدأ السعر من ${money(item.price_1_jod)}`
-  })), page, 9, nextPage => `items_page:${nextPage}`);
-  return listMessage('اختاروا الطبخة اللي نفسكم فيها 🌿', 'تصفح الأصناف 🍲', 'الأصناف المتاحة', rows);
+  
+  const groupedArray = Array.from(groupedMap.entries());
+  const rows = paginateRows(groupedArray.map(([name, groupItems]) => {
+    // حساب أقل سعر متوفر في هذه المجموعة بشكل صحيح
+    const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
+    return {
+      id: `base_item:${name}`,
+      title: shortButton(name),
+      description: `الأسعار تبدأ من ${money(minPrice)}`
+    };
+  }), page, 9, nextPage => `items_page:${nextPage}`);
+  
+  return listMessage('تصفحوا أطباقنا البيتية اللي بتفتح النفس 🌿\nولما يعجبكم طبق اضغطوا عليه لترتيب الطلب.', 'تصفح الأطباق 🍲', 'الأطباق المتاحة', rows);
 }
 
 function quantityList(item) {
@@ -253,9 +274,9 @@ function quantityList(item) {
     { id: `qty:${item.record_id}:3`, title: '3', description: `بـ ${money(Number(item.price_1_jod)*3)}` },
     { id: `qty:${item.record_id}:4`, title: '4', description: `بـ ${money(Number(item.price_1_jod)*4)}` },
     { id: `qty:${item.record_id}:5`, title: '5', description: `بـ ${money(Number(item.price_1_jod)*5)}` },
-    { id: `manual_qty:${item.record_id}`, title: 'إدخال كمية يدوياً ✍️', description: 'مثل: 1.5، أو نصف' }
+    { id: `manual_qty:${item.record_id}`, title: 'كمية مخصصة ✍️', description: 'مثلاً: 1.5، أو نص طلب' }
   ];
-  return listMessage(`اختيار بيشهي: ${item.display_name_ar || item.item_name_ar} 🥘\nالوحدة: ${baseUnitLabel(item)}\n\nكم ${baseUnitLabel(item)} بتحبوا نجهزلكم؟`, 'اختاروا الكمية 🔢', 'الكميات المتاحة', rows);
+  return listMessage(`اختيار بيشهي: ${item.display_name_ar || item.item_name_ar} 🥘\nالسعر: ${money(item.price_1_jod)} لكل ${baseUnitLabel(item)}\n\nكم ${baseUnitLabel(item)} بتحبوا نجهزلكم؟`, 'اختاروا الكمية 🔢', 'الكميات المتاحة', rows);
 }
 
 function extrasList(item, extras = []) {
@@ -278,7 +299,7 @@ function cartSummary(cart = [], draft = {}) {
 function cartButtons(summaryText) {
   return {
     type: 'button', body: `${summaryText}\n\n💡 نصيحة ست البيت: السفرة ما بتكمل بدون مقبلات وسلطات تفتح الشهية! حابين تضيفوا شيء ولا نعتمد الطلب؟`,
-    buttons: [{ id: BUTTON_IDS.CHECKOUT, title: 'اعتماد ومتابعة ✅' }, { id: BUTTON_IDS.ADD_MORE, title: 'إضافة أصناف 🥗' }, { id: BUTTON_IDS.CLEAR_CART, title: 'إلغاء الطلب ❌' }]
+    buttons: [{ id: BUTTON_IDS.CHECKOUT, title: 'تأكيد السلة ✅' }, { id: BUTTON_IDS.ADD_MORE, title: 'إضافة مقبلات/أصناف 🥗' }, { id: BUTTON_IDS.CLEAR_CART, title: 'إلغاء الطلب ❌' }]
   };
 }
 
@@ -289,7 +310,7 @@ function dayList() {
     const label = i === 0 ? 'اليوم (حسب التوافر)' : i === 1 ? 'بكرة' : date.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'numeric' });
     rows.push({ id: `day:${date.toISOString().slice(0, 10)}:${label}`, title: shortButton(label), description: date.toISOString().slice(0, 10) });
   }
-  return listMessage('متى بتحبوا يكون الأكل جاهز؟ 🌿', 'اختاروا اليوم 📅', 'الأيام المتاحة', rows);
+  return listMessage('عشان نجهزلكم الأكل طازج وسخن، متى حابين تستلموا الطلب؟ 🌿', 'اختاروا اليوم 📅', 'الأيام المتاحة', rows);
 }
 
 function slotList(config) {
@@ -320,7 +341,7 @@ function zoneList(rootDir, sectorKey, page = 0) {
 function paymentButtons() {
   return {
     type: 'button', body: 'طريقة الدفع المعتمدة عندنا حالياً هي الدفع كاش عند الاستلام لراحتكم 💵',
-    buttons: [{ id: BUTTON_IDS.PAY_CASH, title: 'الدفع عند الاستلام 💵' }, { id: BUTTON_IDS.HUMAN, title: 'استفسار من موظف 👨‍💻' }, { id: BUTTON_IDS.EXIT, title: 'إلغاء ❌' }]
+    buttons: [{ id: BUTTON_IDS.PAY_CASH, title: 'الدفع عند الاستلام 💵' }, { id: BUTTON_IDS.HUMAN, title: 'استفسار من المطبخ 👨‍🍳' }]
   };
 }
 
@@ -354,19 +375,18 @@ function buildCustomerFinalSummary(cart = [], draft = {}) {
 
 // --- الأوامر الإدارية (Admin Logic) ---
 function adminDecisionButtons(orderId) {
-  return { type: 'button', body: `إدارة الطلب ${orderId}`, buttons: [{ id: `${BUTTON_IDS.ADMIN_APPROVE}:${orderId}`, title: 'موافقة' }, { id: `${BUTTON_IDS.ADMIN_MODIFY}:${orderId}`, title: 'تعديل' }, { id: `${BUTTON_IDS.ADMIN_REJECT}:${orderId}`, title: 'رفض' }] };
+  return { type: 'button', body: `إدارة الطلب ${orderId}`, buttons: [{ id: `${BUTTON_IDS.ADMIN_APPROVE}:${orderId}`, title: 'موافقة وتأكيد' }, { id: `${BUTTON_IDS.ADMIN_MODIFY}:${orderId}`, title: 'تعديل' }, { id: `${BUTTON_IDS.ADMIN_REJECT}:${orderId}`, title: 'رفض' }] };
 }
 
 async function notifyAdminsNewOrder(rootDir, order, config) {
   const items = await getOrderItems(rootDir, order.id);
   let admins = getActiveAdminPhones(rootDir, config);
   
-  // الاحتياط: إرسال الإشعار للرقم الافتراضي إذا لم يتم العثور على مدير
   if (!admins || admins.length === 0) admins = String(process.env.ADMIN_NUMBERS || '').split(',').map(n => normalizePhone(n)).filter(Boolean);
-  if (admins.length === 0) admins = [order.phone]; // وضع المطور/الاختبار
+  if (admins.length === 0) admins = [order.phone];
 
   const summary = [
-    'طلب جديد يحتاج اعتماد 🌿', `رقم الطلب: ${order.id}`, `الهاتف: ${order.phone}`,
+    'طلب جديد يحتاج تأكيد 🌿', `رقم الطلب: ${order.id}`, `الهاتف: ${order.phone}`,
     order.customer_name ? `الاسم: ${order.customer_name}` : null, '',
     ...items.map((item, index) => `${index + 1}. ${item.display_name_ar || item.displayNameAr} × ${item.quantity} = ${money(item.line_total_jod || item.lineTotalJod)}`),
     '', `الإجمالي: ${money(order.total_jod || order.totalJod)}`,
@@ -378,7 +398,7 @@ async function notifyAdminsNewOrder(rootDir, order, config) {
   for (const adminPhone of admins) {
     try {
       await sendWhatsAppText(rootDir, adminPhone, summary);
-      await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id)); // إجبار الإرسال لتجنب خطأ الصلاحيات
+      await sendWhatsAppInteractive(rootDir, adminPhone, adminDecisionButtons(order.id)); 
       sent += 1;
     } catch (e) { failed += 1; }
   }
@@ -433,7 +453,6 @@ async function sendWhatsAppInteractive(rootDir, to, interactive) {
 
   const result = await sendWhatsAppPayload(to, { type: 'interactive', interactive: normalized });
   try {
-    // حل مشكلة Supabase PGRST102 - تنظيف كائن الـ JSON قبل الحفظ
     const safePayload = JSON.parse(JSON.stringify({ request_interactive: normalized, response: result.data || null, status: result.status || null }));
     await saveOutgoingMessage(rootDir, { id: crypto.randomUUID(), to, type: `interactive_${normalized.type}`, text: normalized.body?.text || '', payload: safePayload });
   } catch (error) { console.error('MESSAGES_LOG_ERROR', error); }
@@ -487,17 +506,16 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     const adminProfile = isAdminAuthorized(rootDir, from, config) ? getAdminProfile(rootDir, from, config) : null;
     
-    // مسار الأوامر الإدارية والتفاعل مع الأزرار الإدارية (تُترك للحفاظ على الصلاحيات)
+    // مسار الأوامر الإدارية (تُركت للسرية)
     if (adminProfile && selection.startsWith('admin_')) {
-      // (اختصار لضمان التركيز على العميل، الأوامر الإدارية تُعالج تلقائياً في السيرفر)
-      // تم الاحتفاظ بمنطق الاعتماد من خلال الدالة الرئيسية
+        // يتم التعامل معها في السيرفر
     }
 
     let session = await getConversationSession(rootDir, from);
     let sessionData = readSessionData(session);
     const customerProfile = await getCustomerProfileSummary(rootDir, from);
 
-    // --- إدخال الكمية يدوياً (المنطق الجديد) ---
+    // --- إدخال الكمية يدوياً ---
     if (type === 'text' && sessionData.awaiting === 'manual_qty') {
       const item = getMenuItemById(rootDir, sessionData.pendingItemId);
       if (!item) return json(res, 200, { ok: true, mode: 'manual_qty_err' });
@@ -515,9 +533,18 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, cartButtons(cartSummary(cart, sessionData.orderDraft).text)), mode: 'manual_qty_saved' });
     }
 
+    // --- استقبال العميل الجديد وعرض نادي العروض ---
     if (!session) {
-      session = await persistSession(rootDir, from, null, { currentState: 'welcome', sessionData: resetDraftKeepingSession() });
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, welcomeButtons(customerProfile.isReturning)), mode: 'new_welcome' });
+      session = await persistSession(rootDir, from, null, { currentState: 'consent_prompt', sessionData: resetDraftKeepingSession() });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, consentButtons()), mode: 'new_welcome' });
+    }
+
+    // --- الموافقة على نادي العروض (VIP) ---
+    if ([BUTTON_IDS.CONSENT_YES, BUTTON_IDS.CONSENT_SERVICE_ONLY].includes(selection)) {
+      const consentStatus = selection === BUTTON_IDS.CONSENT_YES ? 'marketing_opt_in' : 'service_only';
+      session = await persistSession(rootDir, from, session, { currentState: 'main_menu', consentStatus });
+      await upsertCustomer(rootDir, { phone: from, preferred_language: 'ar', consent_status: consentStatus });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, welcomeButtons(customerProfile.isReturning)), mode: 'welcome_after_consent' });
     }
 
     if (selection === BUTTON_IDS.EXIT) {
@@ -525,7 +552,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, mainMenuButtons()), mode: 'exit_to_main' });
     }
 
-    if (selection === BUTTON_IDS.START_ORDER || textIntent(text) === 'order') {
+    if (selection === BUTTON_IDS.START_ORDER || selection === BUTTON_IDS.SHOW_MENU || textIntent(text) === 'menu' || textIntent(text) === 'order') {
       session = await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: resetDraftKeepingSession() });
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0)), mode: 'order_start' });
     }
@@ -540,20 +567,21 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, itemListGrouped(rootDir, { rootId }, 0)), mode: 'root_selected' });
     }
 
-    // --- التجميع الذكي: معالجة ضغطة العميل على الصنف المجمع (مثل: مسخن) ---
+    // --- عرض الخيارات الفرعية للصنف بشكل مرتب (مثال: أحجام المنسف) ---
     if (selection.startsWith('base_item:')) {
       const baseName = selection.split(':')[1];
-      const allItems = getItemsForRoot(rootDir, sessionData.orderDraft).filter(i => (i.item_name_ar || i.display_name_ar) === baseName);
+      const allItems = getItemsForRoot(rootDir, sessionData.orderDraft)
+        .filter(i => (i.item_name_ar || i.display_name_ar) === baseName)
+        // 🟢 فرز الأصناف تصاعدياً حسب السعر
+        .sort((a, b) => Number(a.price_1_jod || 0) - Number(b.price_1_jod || 0));
       
       if (allItems.length === 1) {
-        // لا يوجد أحجام، انتقل للكمية مباشرة
         const item = allItems[0];
         session = await persistSession(rootDir, from, session, { currentState: 'awaiting_quantity', sessionData: { ...sessionData, pendingItemId: item.record_id, pendingExtras: getItemExtras(rootDir, item), awaiting: 'quantity' } });
         return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, quantityList(item)), mode: 'quantity_prompt' });
       }
       
-      // عرض الأحجام كقائمة
-      const rows = allItems.map(item => ({ id: `item:${item.record_id}`, title: shortButton(item.display_name_ar), description: `${money(item.price_1_jod)}` }));
+      const rows = allItems.map(item => ({ id: `item:${item.record_id}`, title: shortButton(item.display_name_ar), description: `السعر: ${money(item.price_1_jod)}` }));
       const delivered = await sendWhatsAppInteractive(rootDir, to, listMessage(`يا سلام على الـ ${baseName}! 😋\nمتوفر بالأحجام التالية، شو بيناسبكم؟`, 'اختاروا الحجم 📏', 'الأحجام المتاحة', rows));
       return json(res, 200, { ok: true, delivered, mode: 'variation_prompt' });
     }
@@ -572,7 +600,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
     if (selection.startsWith('manual_qty:')) {
       const itemId = selection.split(':')[1];
       session = await persistSession(rootDir, from, session, { currentState: 'awaiting_manual_quantity', sessionData: { ...sessionData, pendingItemId: itemId, awaiting: 'manual_qty' } });
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, 'اكتبوا لنا الكمية اللي بتحتاجوها (مثلاً: 1.5، أو نصف) ✍️'), mode: 'manual_qty_prompt' });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, 'اكتبوا لنا الكمية اللي بتحتاجوها (مثلاً: 1.5 كيلو، أو نص طلب) ✍️'), mode: 'manual_qty_prompt' });
     }
 
     if (selection.startsWith('qty:')) {
@@ -673,12 +701,18 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, customerSummaryButtons(buildCustomerFinalSummary(sessionData.cart, sessionData.orderDraft))), mode: 'customer_summary' });
     }
 
+    if (selection === BUTTON_IDS.CUSTOMER_EDIT) {
+      session = await persistSession(rootDir, from, session, { currentState: 'menu_roots', sessionData: { ...sessionData, pendingItemId: null, pendingExtras: [], awaiting: null } });
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, to, rootList(rootDir, 0)), mode: 'edit_items' });
+    }
+
     if (selection === BUTTON_IDS.CUSTOMER_CONFIRM) {
       const outcome = await createOrUpdateOrderFromDraft(rootDir, from, session);
       if (outcome.error) return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `عذراً 🌿\n${outcome.error}`), mode: 'create_order_error' });
 
       try { await notifyAdminsNewOrder(rootDir, outcome.order, config); } catch (error) { console.error('ADMIN_NOTIFY_FATAL', error); }
-      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `تم استلام طلبكم اللي بيفتح النفس ✅\nرقم الطلب: ${outcome.order.id}\nتم إرساله للإدارة للمراجعة وتثبيت الموعد. رح نرسل لكم التأكيد هون مباشرة.`), mode: 'sent_to_admin' });
+      // 🟢 رسالة الإرسال الاحترافية لتعزيز الثقة و Social Proof
+      return json(res, 200, { ok: true, delivered: await sendWhatsAppText(rootDir, to, `تم رفع طلبكم للإدارة لتأكيد الموعد والتوافر ✅\nرقم الطلب: ${outcome.order.id}\nثواني وبنأكد لكم الطلب هون، جهزوا السفرة 🌿`), mode: 'sent_to_admin' });
     }
 
     if (type === 'location' && sessionData.awaiting === 'address') {
