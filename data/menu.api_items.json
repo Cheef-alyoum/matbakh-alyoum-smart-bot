@@ -1,20 +1,38 @@
 [
-  { "record_id": "CHK_MQL", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "مقلوبة", "item_name_ar": "مقلوبة" },
-  { "record_id": "CHK_MNS", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "منسف", "item_name_ar": "منسف" },
-  { "record_id": "CHK_KBS", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "كبسة", "item_name_ar": "كبسة" },
-  { "record_id": "CHK_MSX", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "مسخن", "item_name_ar": "مسخن" },
-  { "record_id": "CHK_MFT", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "مفتول", "item_name_ar": "مفتول" },
-  { "record_id": "CHK_BRY", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "برياني", "item_name_ar": "برياني" },
-  { "record_id": "CHK_QDR", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "قدرة", "item_name_ar": "قدرة" },
-  { "record_id": "CHK_OUZ", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "اوزي", "item_name_ar": "اوزي" },
-  { "record_id": "CHK_FRK", "menu_root": "chicken", "category_ar": "دجاج", "display_name_ar": "فريكة", "item_name_ar": "فريكة" },
-  
+  { "record_id": "CHK_MQL", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "مقلوبة دجاج", "item_name_ar": "مقلوبة" },
+  { "record_id": "CHK_MNS", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "منسف دجاج", "item_name_ar": "منسف" },
+  { "record_id": "CHK_KBS", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "كبسة دجاج", "item_name_ar": "كبسة" },
+  { "record_id": "CHK_BRY", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "برياني دجاج", "item_name_ar": "برياني" },
+  { "record_id": "CHK_FRK", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "فريكة دجاج", "item_name_ar": "فريكة" },
+  { "record_id": "CHK_QDR", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "قدرة دجاج", "item_name_ar": "قدرة" },
+  { "record_id": "CHK_OUZ", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "اوزي دجاج", "item_name_ar": "اوزي" },
+  { "record_id": "CHK_MSX", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "مسخن", "item_name_ar": "مسخن" },
+  { "record_id": "CHK_MFT", "menu_root": "chicken", "category_ar": "أطباق الدجاج", "display_name_ar": "مفتول", "item_name_ar": "مفتول" },
+
+  { "record_id": "BAL_MQL", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "مقلوبة بلدي", "item_name_ar": "مقلوبة بلدي", "price_1_jod": 25 },
   { "record_id": "BAL_MNS", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "منسف بلدي", "item_name_ar": "منسف بلدي", "price_1_jod": 25 },
+  { "record_id": "BAL_KBS", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "كبسة بلدي", "item_name_ar": "كبسة بلدي", "price_1_jod": 25 },
+  { "record_id": "BAL_BRY", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "برياني بلدي", "item_name_ar": "برياني بلدي", "price_1_jod": 25 },
+  { "record_id": "BAL_FRK", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "فريكة بلدي", "item_name_ar": "فريكة بلدي", "price_1_jod": 25 },
+  { "record_id": "BAL_QDR", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "قدرة بلدي", "item_name_ar": "قدرة بلدي", "price_1_jod": 25 },
   { "record_id": "BAL_OUZ", "menu_root": "meat_baladi", "category_ar": "لحم بلدي", "display_name_ar": "اوزي بلدي", "item_name_ar": "اوزي بلدي", "price_1_jod": 25 },
-  
+
+  { "record_id": "ROM_MQL", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "مقلوبة روماني", "item_name_ar": "مقلوبة روماني", "price_1_jod": 20 },
   { "record_id": "ROM_MNS", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "منسف روماني", "item_name_ar": "منسف روماني", "price_1_jod": 20 },
-  { "record_id": "ROM_QDR", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "قدرة روماني", "item_name_ar": "قدرة روماني", "price_1_jod": 20 },
+  { "record_id": "ROM_KBS", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "كبسة روماني", "item_name_ar": "كبسة روماني", "price_1_jod": 20 },
+  { "record_id": "ROM_BRY", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "برياني روماني", "item_name_ar": "برياني روماني", "price_1_jod": 20 },
   { "record_id": "ROM_FRK", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "فريكة روماني", "item_name_ar": "فريكة روماني", "price_1_jod": 20 },
+  { "record_id": "ROM_QDR", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "قدرة روماني", "item_name_ar": "قدرة روماني", "price_1_jod": 20 },
+  { "record_id": "ROM_OUZ", "menu_root": "meat_romani", "category_ar": "لحم روماني", "display_name_ar": "اوزي روماني", "item_name_ar": "اوزي روماني", "price_1_jod": 20 },
+
+  { "record_id": "OTH_MLX", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "ملوخية", "item_name_ar": "ملوخية", "price_1_jod": 16 },
+  { "record_id": "OTH_KFT", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "كفتة", "item_name_ar": "كفتة", "price_1_jod": 16 },
+  { "record_id": "OTH_BAM", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "باميا", "item_name_ar": "باميا", "price_1_jod": 16 },
+  { "record_id": "OTH_FAS", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "فاصوليا", "item_name_ar": "فاصوليا", "price_1_jod": 16 },
+  { "record_id": "OTH_SHX", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "شيخ المخشي", "item_name_ar": "شيخ المخشي", "price_1_jod": 16 },
+  { "record_id": "OTH_SHB", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "شيشبرك", "item_name_ar": "شيشبرك", "price_1_jod": 16 },
+  { "record_id": "OTH_KBL", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "كبة لبنية", "item_name_ar": "كبة لبنية", "price_1_jod": 16 },
+  { "record_id": "OTH_KBH", "menu_root": "other", "category_ar": "طبخات بيتية", "display_name_ar": "كباب هندي", "item_name_ar": "كباب هندي", "price_1_jod": 16 },
 
   { "record_id": "MAH_ENB", "menu_root": "mahashi", "category_ar": "محاشي", "display_name_ar": "ورق عنب", "item_name_ar": "ورق عنب", "price_1_jod": 13 },
   { "record_id": "MAH_YAL", "menu_root": "mahashi", "category_ar": "محاشي", "display_name_ar": "يالنجي", "item_name_ar": "يالنجي", "price_1_jod": 12 },
@@ -25,5 +43,8 @@
   { "record_id": "SAL_01", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "خيار بلبن", "item_name_ar": "خيار بلبن", "price_1_jod": 2 },
   { "record_id": "SAL_02", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "سلطة عربية", "item_name_ar": "سلطة عربية", "price_1_jod": 2 },
   { "record_id": "SAL_03", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "فتوش", "item_name_ar": "فتوش", "price_1_jod": 2 },
-  { "record_id": "SAL_04", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "تبولة", "item_name_ar": "تبولة", "price_1_jod": 4 }
+  { "record_id": "SAL_04", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "سلطة جرجير", "item_name_ar": "سلطة جرجير", "price_1_jod": 2 },
+  { "record_id": "SAL_05", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "تبولة", "item_name_ar": "تبولة", "price_1_jod": 4 },
+  { "record_id": "SAL_06", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "سلطة معكرونة", "item_name_ar": "سلطة معكرونة", "price_1_jod": 4 },
+  { "record_id": "SAL_07", "menu_root": "salads", "category_ar": "سلطات", "display_name_ar": "سلطة بوملي", "item_name_ar": "سلطة بوملي", "price_1_jod": 4 }
 ]
