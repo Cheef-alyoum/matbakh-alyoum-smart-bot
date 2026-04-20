@@ -20,6 +20,17 @@ const INCOMING_MESSAGE_CACHE = new Map();
 const INCOMING_MESSAGE_TTL_MS = 10 * 60 * 1000;
 
 function getSafeHost(req) { return req?.headers?.host || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:10000'; }
+
+// 🟢 الدالة التي كانت مفقودة (للتحقق من اتصال الواتساب)
+export function whatsappVerify(req, res) {
+  const url = new URL(req?.url || '/api/webhooks/whatsapp', `http://${getSafeHost(req)}`);
+  if (url.searchParams.get('hub.mode') === 'subscribe' && url.searchParams.get('hub.verify_token') === (process.env.WHATSAPP_VERIFY_TOKEN || '')) {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end(url.searchParams.get('hub.challenge'));
+  }
+  return json(res, 403, { ok: false, message: 'فشل التحقق من Webhook.' });
+}
+
 function nowIso() { return new Date().toISOString(); }
 function money(value) { return `${Number(value || 0).toFixed(3)} د.أ`; }
 function shortButton(title, max = 20) { return String(title || '').trim().slice(0, max); }
@@ -87,7 +98,7 @@ function buildTextMenu() {
 }
 
 // ==========================================
-// 2. الحساب الذكي للضيافة
+// 2. الحساب الذكي للضيافة (Dynamic Freebies)
 // ==========================================
 function getFreebiesText(item, qty) {
   const name = String(item.displayNameAr || item.item_name_ar || '').toLowerCase();
@@ -149,7 +160,6 @@ function sauceOptionsButtons(itemId) {
   return { type: 'button', body: 'المفتول بده صوص يكمل طعمه! 😋\nشو بتفضلوا نوع الصوص؟', buttons: [{ id: `opt_sauce:${itemId}:بندورة`, title: 'صوص بندورة 🍅' }, { id: `opt_sauce:${itemId}:اوريجنال`, title: 'صوص أوريجنال (أبيض)' }] };
 }
 
-// 🟢 التحديث الأهم: فرز الأصناف ورفع الأكثر مبيعاً للقمة
 function itemListGrouped(rootDir, filters = {}, page = 0) {
   const items = getItemsForRoot(rootDir, filters);
   const groupedMap = new Map();
@@ -162,25 +172,21 @@ function itemListGrouped(rootDir, filters = {}, page = 0) {
   
   let groupedArray = Array.from(groupedMap.entries());
 
-  // قائمة الأولويات (الأكثر مبيعاً)
   const BEST_SELLERS = ['مقلوبة', 'مسخن', 'مفتول', 'عنب', 'دوالي', 'ملفوف', 'كوسا'];
 
   groupedArray.sort(([nameA], [nameB]) => {
     const indexA = BEST_SELLERS.findIndex(b => nameA.includes(b));
     const indexB = BEST_SELLERS.findIndex(b => nameB.includes(b));
-    const aIsBest = indexA !== -1;
-    const bIsBest = indexB !== -1;
-
-    if (aIsBest && !bIsBest) return -1;
-    if (!aIsBest && bIsBest) return 1;
-    if (aIsBest && bIsBest) return indexA - indexB; // الحفاظ على الترتيب داخل الأكثر مبيعاً
-    return 0; // الباقي كما هو
+    if (indexA !== -1 && indexB === -1) return -1;
+    if (indexA === -1 && indexB !== -1) return 1;
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB; 
+    return 0; 
   });
   
   const rows = paginateRows(groupedArray.map(([name, groupItems]) => {
     const minPrice = Math.min(...groupItems.map(i => Number(i.price_1_jod || 0)));
     const isBestSeller = BEST_SELLERS.some(b => name.includes(b));
-    const titleLabel = isBestSeller ? `⭐ ${name}` : name; // إضافة النجمة
+    const titleLabel = isBestSeller ? `⭐ ${name}` : name;
 
     return {
       id: `base_item:${name}`,
@@ -241,6 +247,16 @@ function buildLocationText(message) {
   return parts.join(' — ');
 }
 
+function paginateRows(rows, page = 0, pageSize = 9, moreIdFactory = () => '') {
+  const start = page * pageSize; const subset = rows.slice(start, start + pageSize);
+  if (start + pageSize < rows.length) subset.push({ id: moreIdFactory(page + 1), title: 'عرض المزيد ⬇️', description: 'خيارات إضافية' });
+  return subset;
+}
+
+function listMessage(body, buttonText, title, rows) {
+  return { type: 'list', body, buttonText, sections: [{ title, rows }] };
+}
+
 function adminDecisionButtons(orderId, from) {
   return { type: 'button', body: `قرار الإدارة لطلب ${orderId}`, buttons: [{ id: `admin_approve:${orderId}:${from}`, title: 'اعتماد الطلب ✅' }, { id: `admin_reject:${orderId}:${from}`, title: 'رفض (المطبخ فل) ❌' }] };
 }
@@ -297,7 +313,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, welcomeButtons()) });
     }
 
-    // عرض المنيو
+    // عرض المنيو (نصياً)
     if (selection === BUTTON_IDS.SHOW_MENU_IMG || selection === BUTTON_IDS.SHOW_MENU || text.includes('منيو')) {
       await sendWhatsAppText(rootDir, from, buildTextMenu());
       return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, welcomeButtons(true)) });
@@ -312,7 +328,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
 
     if (selection === BUTTON_IDS.ORDER_TODAY) {
       if (isPast6PM()) {
-        await sendWhatsAppText(rootDir, from, "يا ريت تعذرونا 🌿\nمطبخنا سكر استقبال طلبات لليوم (آخر موعد 6 المساء). بنتشرف نجهزلكم طلبكم لبكرة، اختاروا 'لبكرة' لنرتبلكم أطيب سفرة 🥘.");
+        await sendWhatsAppText(rootDir, from, "يا ريت تعذرونا 🌿\nمطبخنا سكر استقبال طلبات لليوم (آخر موعد 6 المساء لضمان الجودة). بنتشرف نجهزلكم طلبكم لبكرة، اختاروا 'لبكرة / أيام قادمة' لنرتبلكم أطيب سفرة 🥘.");
         return json(res, 200, { ok: true, delivered: await sendWhatsAppInteractive(rootDir, from, orderTimeButtons()) });
       }
       sessionData.orderDraft.day = 'اليوم';
@@ -337,12 +353,8 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       if (selection === BUTTON_IDS.CAT_MAHASHI) { filteredItems = allItems.filter(i => String(i.category_ar).includes('محاشي') || String(i.item_name_ar).match(/عنب|ملفوف|كوسا|يالنجي/)); listTitle = 'المحاشي'; }
       if (selection === BUTTON_IDS.CAT_SALADS) { filteredItems = allItems.filter(i => String(i.category_ar).includes('سلط') || i.menu_root === 'salads'); listTitle = 'سلطات'; }
 
-      // استخدام الفرز الذكي
-      const mappedFilters = { categoryFilter: listTitle }; // للتوافقية
       await setConversationSession(rootDir, from, { current_state: 'selecting_item', session_data: sessionData });
       
-      // نرسل الـ filteredItems عن طريق حفظها مؤقتاً بالفلتر أو الاعتماد على itemListGrouped إذا أمكن، 
-      // لتسهيل الأمر سأمرر قائمة مبنية يدوياً بنفس منطق itemListGrouped
       const groupedMap = new Map();
       for (const item of filteredItems) {
         const name = String(item.item_name_ar || item.display_name_ar).trim();
@@ -430,7 +442,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       const isMeat = String(item.category_ar).includes('لحم');
       let basePrice = 15; 
       if (isMeat) basePrice = String(item.category_ar).includes('بلدي') ? 25 : 20;
-      if (String(item.category_ar).includes('محاشي')) basePrice = item.price_1_jod || 10;
+      if (String(item.category_ar).includes('محاشي')) basePrice = item.price_1_jod || 10; // السعر التقديري للمحاشي
       if (String(item.category_ar).includes('سلط')) basePrice = item.price_1_jod || 2;
       
       const lineBase = basePrice * parsedQty;
@@ -484,7 +496,7 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       return json(res, 200, { ok: true });
     }
 
-    // الأزرار الإدارية
+    // --- أزرار الإدارة ---
     if (selection && selection.startsWith('admin_')) {
       const [action, orderId, customerPhone] = selection.split(':');
       if (action === 'admin_approve') {
@@ -506,6 +518,10 @@ export async function processWhatsAppWebhook(rootDir, req, res, config) {
       else if (action === 'admin_del') {
         await sendWhatsAppText(rootDir, customerPhone, `ألف صحة وهنا على قلوبكم ✅\nنتمنى تكون الأكلات بيضت وجهكم. شاركونا رأيكم ولا تنسونا بطلباتكم الجاية 🌿`);
         await sendWhatsAppText(rootDir, from, `تم إغلاق الطلب ${orderId} بنجاح.`);
+      }
+      else if (action === 'admin_failed') {
+        await sendWhatsAppText(rootDir, customerPhone, `مرحباً، حاول المندوب تسليم طلبكم ${orderId} ولكن يبدو أن هناك مشكلة بالتواصل. يرجى الرد هنا فوراً ⚠️.`);
+        await sendWhatsAppText(rootDir, from, `تم تسجيل الطلب كعالق.`);
       }
       return json(res, 200, { ok: true });
     }
